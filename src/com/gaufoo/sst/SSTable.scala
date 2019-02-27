@@ -13,6 +13,7 @@ trait KeyValueMap {
   type Value = String
   def set(key: Key, value: Value): Future[Value]
   def get(key: Key): Future[Option[Value]]
+  def delete(key: Key): Future[Option[Value]]
 }
 
 class SSTable extends KeyValueMap {
@@ -210,10 +211,3 @@ class SSTable extends KeyValueMap {
 
   new Thread(worker).start()
 }
-
-//object SSTable {
-//  def main(args: Array[String]): Unit = {
-//    val s = new SSTable
-//    s
-//  }
-//}
