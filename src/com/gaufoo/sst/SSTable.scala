@@ -21,17 +21,24 @@ class SSTable extends KeyValueMap {
   private val UTF_8 = "UTF-8"
   private val storingLocation = "."
   private val tombstone = new String(Array[Byte](0, 1, 2, 3, 2, 1, 0, 1))
+  lazy val genId: () => Int = {
+    var id = -1
+    val inner = () => { id = id + 1;  id }
+    inner
+  }
 
+  final case class MemoryTree(id: Int, tree: TreeMap[Key, Value])
   final case class SSTable(id: Int, fileName: String, indexTree: TreeMap[Key, Offset])
-  final case class State(segments: List[SSTable], memoryTables: List[TreeMap[Key, Value]])
+
+  final case class State(segments: List[SSTable], memoryTrees: List[MemoryTree])
 
   // 初始化状态
-  def initState: State = State(List(), List(TreeMap[Key, Value]()))
+  def initState: State = State(List(), List(MemoryTree(genId(), TreeMap[Key, Value]())))
 
   /**
     * 当前SST状态，包含：
     * segments: 已经持久化于文件中的段，包括文件名、一个从键到文件偏移的映射
-    * memoryTables: 内存中的表，包含从键到值的映射，正常情况下只有一个，在等待创建段文件的过程中有可能出现多个
+    * memoryTrees: 内存中的表，包含从键到值的映射，正常情况下只有一个，在等待创建段文件的过程中有可能出现多个
     *
     * 只有一个写进程可以修改state。
     * 读state是线程安全的。
@@ -62,9 +69,9 @@ class SSTable extends KeyValueMap {
     } yield ov
   }
 
-  private def getFromMemory(key: Key, memoryTables: List[TreeMap[Key, Value]]): Future[Option[Value]] = {
+  private def getFromMemory(key: Key, memoryTrees: List[MemoryTree]): Future[Option[Value]] = {
     Future {
-      memoryTables.find(_.contains(key)).map(_(key))
+      memoryTrees.map(_.tree).find(_.contains(key)).map(_(key))
     }
   }
 
@@ -99,8 +106,8 @@ class SSTable extends KeyValueMap {
 
   sealed trait Command
   final case class SetKey(key: Key, value: Value, callback: Value => Unit) extends Command
-  final case class UpdateSegments(toRemove: Set[SSTable], toAdd: List[SSTable]) extends Command
-  final case class AddSegment(toRemove: TreeMap[Key, Value], toAdd: SSTable) extends Command
+  final case class UpdateSegments(toAdd: List[SSTable], toRemove: List[SSTable]) extends Command
+  final case class AddSegment(toAdd: SSTable, toRemove: MemoryTree) extends Command
   final case class Compact(segments: List[SSTable]) extends Command
 
   val commandQueue: BlockingQueue[Command] = new LinkedBlockingQueue[Command]()
@@ -134,8 +141,6 @@ class SSTable extends KeyValueMap {
     *
     */
   private val worker: Runnable = () => {
-    var id = -1
-    def getId: Int = { id += 1; id }
     val treeSizeThreshold = 5
 
     while (true) {
@@ -144,31 +149,32 @@ class SSTable extends KeyValueMap {
       op match {
         case SetKey(key, value, callback) => setKey(key, value, callback)
 
-        case UpdateSegments(toRemove, toAdd) => refreshSegments(toRemove, toAdd)
+        case UpdateSegments(toRemove, toAdd) => updateSegments(toRemove.map(_.id).toSet, toAdd)
 
-        case AddSegment(toRemove, toAdd) => addSegment(toRemove, toAdd)
+        case AddSegment(toAdd, toRemove) => addSegment(toAdd, toRemove)
 
         case Compact(segments) => compact(segments)
       }
     }
 
     def setKey(key: Key, value: Value, callback: Value => Unit): Unit = {
-      val State(oldSegments, oldMemoryTable :: others) = state
-      val newTable = oldMemoryTable.updated(key, value)
-      var tables = newTable :: others
+      val State(oldSegments, MemoryTree(id, oldTree) :: others) = state
+      val newTree = MemoryTree(id, oldTree.updated(key, value))
+      var trees = newTree :: others
 
-      if (newTable.size >= treeSizeThreshold) {
-        convertToSeg(newTable)
-        tables = TreeMap[Key, Value]() :: tables
+      if (newTree.tree.size >= treeSizeThreshold) {
+        convertToSeg(newTree)
+        trees = MemoryTree(genId(), TreeMap[Key, Value]()) :: trees
       }
 
-      state = State(oldSegments, tables)
+      state = State(oldSegments, trees)
       callback(value)
     }
 
-    def convertToSeg(memoryTable: TreeMap[Key, Value]): Future[Unit] = {
+    def convertToSeg(memoryTree: MemoryTree): Future[Unit] = {
       Future {
-        val (listOfArray, _, indexTree) = memoryTable.foldLeft((Vector.empty[Array[Byte]], 0, TreeMap.empty[Key, Offset])) {
+        val MemoryTree(id, tree) = memoryTree
+        val (listOfArray, _, indexTree) = tree.foldLeft((Vector.empty[Array[Byte]], 0, TreeMap.empty[Key, Offset])) {
           case ((acc, offset, iTree), (key, value)) =>
             val bfk = ByteBuffer.allocate(4)
             val bfv = ByteBuffer.allocate(4)
@@ -183,29 +189,38 @@ class SSTable extends KeyValueMap {
         }
         val bytes = listOfArray.toArray.flatten
 
-        val id = getId
-
         val fileName = Files.write(Paths.get(storingLocation).resolve(s"sst-$id"), bytes,
           StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).toString
 
-        commandQueue.put(AddSegment(memoryTable, SSTable(id, fileName, indexTree)))
+        commandQueue.put(AddSegment(SSTable(id, fileName, indexTree), memoryTree))
       }
     }
 
     def compact(segments: List[SSTable]): Future[Unit] = {
       Future {
-
+        // TODO
+        commandQueue.put(UpdateSegments(List(), List()))
       }
     }
 
-    def refreshSegments(toRemove: Set[SSTable], toAdd: List[SSTable]): Unit = {
-      val State(oldSegments, oldMemoryTables) = state
-      state = State(toAdd ++ oldSegments.filter(!toRemove.contains(_)), oldMemoryTables)
+    def updateSegments(toRemoveIds: Set[Int], toAdd: List[SSTable]): Unit = {
+      val State(oldSegments, oldMemoryTrees) = state
+      state = State(toAdd ++ oldSegments.filterNot(s => toRemoveIds.contains(s.id)), oldMemoryTrees)
     }
 
-    def addSegment(toRemove: TreeMap[Key, Value], toAdd: SSTable): Unit = {
-      val State(oldSegments, oldMemoryTables) = state
-      state = State((toAdd :: oldSegments).sortBy(s => -s.id), oldMemoryTables.filter(_ != toRemove))
+    lazy val addSegment: (SSTable, MemoryTree) => Unit = {
+      var blocking = Map[Int, (SSTable, MemoryTree)]()
+
+      // 保证按顺序转化成文件
+      val inner = (toAdd: SSTable, toRemove: MemoryTree) => {
+        blocking = blocking.updated(toRemove.id, (toAdd, toRemove))
+
+        val State(oldSegments, oldMemoryTrees) = state
+        val (ss, ms) = oldMemoryTrees.map(_.id).reverse.takeWhile(blocking.isDefinedAt).map(blocking).reverse.unzip
+        state = State(ss ++ oldSegments, oldMemoryTrees diff ms)
+      }
+
+      inner
     }
   }
 
