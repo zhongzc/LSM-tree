@@ -106,7 +106,7 @@ class SSTable extends KeyValueMap {
 
   sealed trait Command
   final case class SetKey(key: Key, value: Value, callback: Value => Unit) extends Command
-  final case class UpdateSegments(toAdd: List[SSTable], toRemove: List[SSTable]) extends Command
+  final case class UpdateSegments(toRemove: List[SSTable], toAdd: List[SSTable]) extends Command
   final case class AddSegment(toAdd: SSTable, toRemove: MemoryTree) extends Command
   final case class Compact(segments: List[SSTable]) extends Command
 
@@ -216,8 +216,10 @@ class SSTable extends KeyValueMap {
         blocking = blocking.updated(toRemove.id, (toAdd, toRemove))
 
         val State(oldSegments, oldMemoryTrees) = state
-        val (ss, ms) = oldMemoryTrees.map(_.id).reverse.takeWhile(blocking.isDefinedAt).map(blocking).reverse.unzip
+        val idsToRemove = oldMemoryTrees.map(_.id).reverse.takeWhile(blocking.isDefinedAt)
+        val (ss, ms) = idsToRemove.map(blocking).reverse.unzip
         state = State(ss ++ oldSegments, oldMemoryTrees diff ms)
+        blocking = blocking -- idsToRemove
       }
 
       inner
@@ -226,3 +228,4 @@ class SSTable extends KeyValueMap {
 
   new Thread(worker).start()
 }
+
