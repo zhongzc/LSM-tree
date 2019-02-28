@@ -1,11 +1,12 @@
 package com.gaufoo.sst
 
 import java.nio.ByteBuffer
-import java.nio.file.{Files, Paths, StandardOpenOption}
-import java.util.concurrent.{BlockingQueue, Executors, LinkedBlockingQueue}
+import java.nio.file.{Files, Path, Paths, StandardOpenOption}
+import java.util.concurrent._
 
 import scala.collection.immutable.TreeMap
 import scala.concurrent._
+import scala.concurrent.Future
 
 trait KeyValueMap {
   type Key = String
@@ -16,40 +17,59 @@ trait KeyValueMap {
 }
 
 object SSTEngine {
+  private val UTF_8 = "UTF-8"
+  private type Offset = Int
+  private val tombstone = new String(Array[Byte](0, 1, 2, 3, 2, 1, 0, 1))
 
   /**
     * 两种Future执行环境
     * 一种为默认，用于非阻塞，和CPU核数匹配
     * 一种用于阻塞操作，如I/O
+    *
+    * 另外还有定时任务执行环境，供后台压缩使用
     */
-  implicit val globalExecutor: ExecutionContext = ExecutionContext.global
-  val blockingExecutor: ExecutionContext = ExecutionContext.fromExecutorService(
+  private implicit val globalExecutor: ExecutionContext = ExecutionContext.global
+  private val blockingExecutor: ExecutionContext = ExecutionContext.fromExecutorService(
     Executors.newFixedThreadPool(20)
   )
+  private val scheduledPool: ScheduledExecutorService = Executors.newScheduledThreadPool(4)
+
+  def build(dbName: String, bufferSize: Int = 1024): SSTEngine = {
+    new SSTEngine(dbName, bufferSize)
+  }
 }
 
-class SSTEngine(dbName: String, bufferSize: Int = 1024) extends KeyValueMap {
+class SSTEngine(dbName: String, bufferSize: Int) extends KeyValueMap {
   import SSTEngine._
 
-  private type Offset = Int
-  private val UTF_8 = "UTF-8"
-  private val storingLocation = s"resources/$dbName"
-  Files.createDirectory(Paths.get(storingLocation))
+  private[this] val storePath: Path = Paths.get(s"resources/$dbName")
 
-  private val tombstone = new String(Array[Byte](0, 1, 2, 3, 2, 1, 0, 1))
   lazy val genId: () => Int = {
     var id = -1
     val inner = () => { id = id + 1;  id }
     inner
   }
 
-  final case class MemoryTree(id: Int, tree: TreeMap[Key, Value])
-  final case class SSTable(id: Int, fileName: String, indexTree: TreeMap[Key, Offset])
+  private[this] final case class MemoryTree(id: Int, tree: TreeMap[Key, Value])
+  private[this] final case class SSTable(id: Int, fileName: String, indexTree: TreeMap[Key, Offset])
+  private[this] final case class State(segments: List[SSTable], memoryTrees: List[MemoryTree])
 
-  final case class State(segments: List[SSTable], memoryTrees: List[MemoryTree])
+  /**
+    * 根据数据库文件夹初始化状态，若不存在则创建新数据库
+    *
+    * @param storePath 数据库文件路径
+    * @return 根据快照创建好的状态
+    */
+  private[this] def initState(storePath: Path): State = {
+    if (Files.notExists(storePath)) {
+      Files.createDirectory(storePath)
+      State(List(), List(MemoryTree(genId(), TreeMap[Key, Value]())))
+    } else {
 
-  // 初始化状态
-  def initState: State = State(List(), List(MemoryTree(genId(), TreeMap[Key, Value]())))
+      // TODO: 根据文件夹重新构建索引树
+      State(List(), List(MemoryTree(genId(), TreeMap[Key, Value]())))
+    }
+  }
 
   /**
     * 当前SST状态，包含：
@@ -59,7 +79,7 @@ class SSTEngine(dbName: String, bufferSize: Int = 1024) extends KeyValueMap {
     * 只有一个写进程可以修改state。
     * 读state是线程安全的。
     */
-  private var state = initState
+  private[this] var state = initState(storePath)
 
   /**
     * 查找特定的键，先从内存表中查找，接下来从段文件中找。
@@ -67,7 +87,9 @@ class SSTEngine(dbName: String, bufferSize: Int = 1024) extends KeyValueMap {
     * @param key 需要查找的键
     * @return 返回查找结果
     */
-  def get(key: Key): Future[Option[Value]] = {
+  override def get(key: Key): Future[Option[Value]] = {
+    // TODO: 用Bloom Filter预过滤一遍
+
     val State(segments, memTables) = state
     getFromMemory(key, memTables).flatMap(value =>
       (if (value.isEmpty) {
@@ -78,22 +100,30 @@ class SSTEngine(dbName: String, bufferSize: Int = 1024) extends KeyValueMap {
     )
   }
 
-  def delete(key: Key): Future[Option[Value]] = {
+  /**
+    * 删除某键，为了简单利用`tombstone`占位，压缩时才清除
+    *
+    * @param key 需要删除的键
+    * @return 键原有的值
+    */
+  override def delete(key: Key): Future[Option[Value]] = {
     for {
       ov <- get(key)
       _ <- set(key, tombstone)
     } yield ov
   }
 
-  private def getFromMemory(key: Key, memoryTrees: List[MemoryTree]): Future[Option[Value]] = {
+  private[this] def getFromMemory(key: Key, memoryTrees: List[MemoryTree]): Future[Option[Value]] = {
     Future {
       memoryTrees.map(_.tree).find(_.contains(key)).map(_(key))
     }
   }
 
-  private def getFromSegments(key: Key, segments: List[SSTable]): Future[Option[Value]] = {
+  private[this] def getFromSegments(key: Key, segments: List[SSTable]): Future[Option[Value]] = {
     val intLength = 4
     Future {
+      // TODO: 稀疏
+      // 先从内存中的索引树中查找键
       segments.find(_.indexTree.contains(key)).map {
         case SSTable(_, fileName, indexTree) =>
           val byteArray = Files.readAllBytes(Paths.get(fileName))
@@ -120,13 +150,12 @@ class SSTEngine(dbName: String, bufferSize: Int = 1024) extends KeyValueMap {
     }(blockingExecutor)
   }
 
-  sealed trait Command
-  final case class SetKey(key: Key, value: Value, callback: Value => Unit) extends Command
-  final case class UpdateSegments(toAdd: List[SSTable], toRemove: List[SSTable]) extends Command
-  final case class AddSegment(toAdd: SSTable, toRemove: MemoryTree) extends Command
-  final case class Compact(segments: List[SSTable]) extends Command
+  private[this] sealed trait Command
+  private[this] final case class SetKey(key: Key, value: Value, callback: Value => Unit) extends Command
+  private[this] final case class UpdateSegments(toAdd: List[SSTable], toRemove: List[SSTable]) extends Command
+  private[this] final case class AddSegment(toAdd: SSTable, toRemove: MemoryTree) extends Command
 
-  val commandQueue: BlockingQueue[Command] = new LinkedBlockingQueue[Command]()
+  private[this] val commandQueue: BlockingQueue[Command] = new LinkedBlockingQueue[Command]()
 
   /**
     * 设置键值对，若键已存在，新值将覆盖旧值
@@ -135,7 +164,7 @@ class SSTEngine(dbName: String, bufferSize: Int = 1024) extends KeyValueMap {
     * @param value 待设置值
     * @return 成功设置的值
     */
-  def set(key: Key, value: Value): Future[Value] = {
+  override def set(key: Key, value: Value): Future[Value] = {
     val f = Promise[Value]()
 
     commandQueue.put(SetKey(key, value, { v =>
@@ -156,7 +185,7 @@ class SSTEngine(dbName: String, bufferSize: Int = 1024) extends KeyValueMap {
     * `Compact`: 压缩SST
     *
     */
-  private val worker: Runnable = () => {
+  private[this] val worker: Runnable = () => {
     val treeSizeThreshold = bufferSize
 
     while (true) {
@@ -168,11 +197,13 @@ class SSTEngine(dbName: String, bufferSize: Int = 1024) extends KeyValueMap {
         case UpdateSegments(toAdd, toRemove) => updateSegments(toAdd, toRemove.map(_.id).toSet)
 
         case AddSegment(toAdd, toRemove) => addSegment(toAdd, toRemove)
-
-        case Compact(segments) => compact(segments)
       }
     }
 
+    /**
+      * 先在内存树中存新键，待到内存树过大，则创建新内存树，旧内存树则转化成索引树
+      *
+      */
     def setKey(key: Key, value: Value, callback: Value => Unit): Unit = {
       val State(oldSegments, MemoryTree(id, oldTree) :: others) = state
       val newTree = MemoryTree(id, oldTree.updated(key, value))
@@ -187,7 +218,12 @@ class SSTEngine(dbName: String, bufferSize: Int = 1024) extends KeyValueMap {
       callback(value)
     }
 
+    /**
+      * 内存树转化成索引树和文件
+      *
+      */
     def convertToSeg(memoryTree: MemoryTree): Future[Unit] = {
+      // TODO: 稀疏
       Future {
         val MemoryTree(id, tree) = memoryTree
         val (listOfArray, _, indexTree) = tree.foldLeft((Vector.empty[Array[Byte]], 0, TreeMap.empty[Key, Offset])) {
@@ -205,25 +241,17 @@ class SSTEngine(dbName: String, bufferSize: Int = 1024) extends KeyValueMap {
         }
         val bytes = listOfArray.toArray.flatten
 
-        val fileName = Files.write(Paths.get(storingLocation).resolve(s"$dbName-sst-$id"), bytes,
+        val fileName = Files.write(storePath.resolve(s"$dbName-sst-$id"), bytes,
           StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).toString
 
         commandQueue.put(AddSegment(SSTable(id, fileName, indexTree), memoryTree))
       }(blockingExecutor)
     }
 
-    def compact(segments: List[SSTable]): Future[Unit] = {
-      Future {
-        // TODO
-        commandQueue.put(UpdateSegments(List(), List()))
-      }(blockingExecutor)
-    }
-
-    def updateSegments(toAdd: List[SSTable], toRemoveIds: Set[Int]): Unit = {
-      val State(oldSegments, oldMemoryTrees) = state
-      state = State(toAdd ++ oldSegments.filterNot(s => toRemoveIds.contains(s.id)), oldMemoryTrees)
-    }
-
+    /**
+      * 内存树转化成索引树和文件后，更新状态
+      *
+      */
     lazy val addSegment: (SSTable, MemoryTree) => Unit = {
       var blocking = Map[Int, (SSTable, MemoryTree)]()
 
@@ -240,8 +268,35 @@ class SSTEngine(dbName: String, bufferSize: Int = 1024) extends KeyValueMap {
 
       inner
     }
+
+    /**
+      * 清理旧的索引树，参数为压缩后的索引树和文件
+      *
+      */
+    def updateSegments(toAdd: List[SSTable], toRemoveIds: Set[Int]): Unit = {
+      val State(oldSegments, oldMemoryTrees) = state
+      state = State(toAdd ++ oldSegments.filterNot(s => toRemoveIds.contains(s.id)), oldMemoryTrees)
+
+      // TODO： 删除文件
+      Future {
+
+      }(blockingExecutor)
+    }
+
+  }
+  new Thread(worker).start()
+
+  /**
+    * 后台运行的压缩工作线程，定时执行
+    */
+  private[this] val compactWorker: Runnable = () => {
+    if (state.segments.size <= 1) {
+      commandQueue.put(UpdateSegments(List(), List()))
+    } else {
+
+    }
   }
 
-  new Thread(worker).start()
+  scheduledPool.scheduleWithFixedDelay(compactWorker, 10, 5, TimeUnit.SECONDS)
 }
 

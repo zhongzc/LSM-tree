@@ -24,7 +24,7 @@ object Main extends App {
     case "del" => DelOp(l(1))
   })
 
-  val s: KeyValueMap = new SSTEngine("throughout")
+  val s: KeyValueMap = SSTEngine.build("throughout")
 
   val start = System.currentTimeMillis()
   for (o <- ol) {
