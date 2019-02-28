@@ -149,7 +149,7 @@ class SSTable extends KeyValueMap {
       op match {
         case SetKey(key, value, callback) => setKey(key, value, callback)
 
-        case UpdateSegments(toRemove, toAdd) => updateSegments(toRemove.map(_.id).toSet, toAdd)
+        case UpdateSegments(toAdd, toRemove) => updateSegments(toAdd, toRemove.map(_.id).toSet)
 
         case AddSegment(toAdd, toRemove) => addSegment(toAdd, toRemove)
 
@@ -203,7 +203,7 @@ class SSTable extends KeyValueMap {
       }
     }
 
-    def updateSegments(toRemoveIds: Set[Int], toAdd: List[SSTable]): Unit = {
+    def updateSegments(toAdd: List[SSTable], toRemoveIds: Set[Int]): Unit = {
       val State(oldSegments, oldMemoryTrees) = state
       state = State(toAdd ++ oldSegments.filterNot(s => toRemoveIds.contains(s.id)), oldMemoryTrees)
     }
@@ -216,8 +216,10 @@ class SSTable extends KeyValueMap {
         blocking = blocking.updated(toRemove.id, (toAdd, toRemove))
 
         val State(oldSegments, oldMemoryTrees) = state
-        val (ss, ms) = oldMemoryTrees.map(_.id).reverse.takeWhile(blocking.isDefinedAt).map(blocking).reverse.unzip
-        state = State(ss ++ oldSegments, oldMemoryTrees diff ms)
+        val idsToRemove = oldMemoryTrees.map(_.id).reverse.takeWhile(blocking.isDefinedAt)
+        val (ss, _) = idsToRemove.map(blocking).reverse.unzip
+        state = State(ss ++ oldSegments, oldMemoryTrees.filterNot(t => idsToRemove.contains(t.id))
+        blocking = blocking -- idsToRemove
       }
 
       inner
@@ -226,3 +228,4 @@ class SSTable extends KeyValueMap {
 
   new Thread(worker).start()
 }
+
