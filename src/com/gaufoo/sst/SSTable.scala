@@ -218,7 +218,7 @@ class SSTable extends KeyValueMap {
         val State(oldSegments, oldMemoryTrees) = state
         val idsToRemove = oldMemoryTrees.map(_.id).reverse.takeWhile(blocking.isDefinedAt)
         val (ss, _) = idsToRemove.map(blocking).reverse.unzip
-        state = State(ss ++ oldSegments, oldMemoryTrees.filterNot(t => idsToRemove.contains(t.id))
+        state = State(ss ++ oldSegments, oldMemoryTrees.filterNot(t => idsToRemove.contains(t.id)))
         blocking = blocking -- idsToRemove
       }
 
