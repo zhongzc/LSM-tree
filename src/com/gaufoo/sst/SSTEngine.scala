@@ -2,11 +2,10 @@ package com.gaufoo.sst
 
 import java.nio.ByteBuffer
 import java.nio.file.{Files, Paths, StandardOpenOption}
-import java.util.concurrent.{BlockingQueue, LinkedBlockingQueue}
+import java.util.concurrent.{BlockingQueue, Executors, LinkedBlockingQueue}
 
 import scala.collection.immutable.TreeMap
-import scala.concurrent.{Future, Promise}
-import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent._
 
 trait KeyValueMap {
   type Key = String
@@ -16,7 +15,22 @@ trait KeyValueMap {
   def delete(key: Key): Future[Option[Value]]
 }
 
-class SSTable extends KeyValueMap {
+object SSTEngine {
+
+  /**
+    * 两种Future执行环境
+    * 一种为默认，用于非阻塞，和CPU核数匹配
+    * 一种用于阻塞操作，如I/O
+    */
+  implicit val globalExecutor: ExecutionContext = ExecutionContext.global
+  val blockingExecutor: ExecutionContext = ExecutionContext.fromExecutorService(
+    Executors.newFixedThreadPool(20)
+  )
+}
+
+class SSTEngine extends KeyValueMap {
+  import SSTEngine._
+
   private type Offset = Int
   private val UTF_8 = "UTF-8"
   private val storingLocation = "."
@@ -57,7 +71,7 @@ class SSTable extends KeyValueMap {
       (if (value.isEmpty) {
         getFromSegments(key, segments)
       } else {
-        Future(value)
+        Future.successful(value)
       }).map(ov => ov.flatMap(v => if (v == tombstone) None else Option(v)))
     )
   }
@@ -101,7 +115,7 @@ class SSTable extends KeyValueMap {
           assert(keyString == key)
           valueString
       }
-    }
+    }(blockingExecutor)
   }
 
   sealed trait Command
@@ -193,14 +207,14 @@ class SSTable extends KeyValueMap {
           StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).toString
 
         commandQueue.put(AddSegment(SSTable(id, fileName, indexTree), memoryTree))
-      }
+      }(blockingExecutor)
     }
 
     def compact(segments: List[SSTable]): Future[Unit] = {
       Future {
         // TODO
         commandQueue.put(UpdateSegments(List(), List()))
-      }
+      }(blockingExecutor)
     }
 
     def updateSegments(toAdd: List[SSTable], toRemoveIds: Set[Int]): Unit = {
