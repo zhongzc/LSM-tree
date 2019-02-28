@@ -106,7 +106,7 @@ class SSTable extends KeyValueMap {
 
   sealed trait Command
   final case class SetKey(key: Key, value: Value, callback: Value => Unit) extends Command
-  final case class UpdateSegments(toRemove: List[SSTable], toAdd: List[SSTable]) extends Command
+  final case class UpdateSegments(toAdd: List[SSTable], toRemove: List[SSTable]) extends Command
   final case class AddSegment(toAdd: SSTable, toRemove: MemoryTree) extends Command
   final case class Compact(segments: List[SSTable]) extends Command
 
