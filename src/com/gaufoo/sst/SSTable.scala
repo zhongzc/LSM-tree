@@ -149,7 +149,7 @@ class SSTable extends KeyValueMap {
       op match {
         case SetKey(key, value, callback) => setKey(key, value, callback)
 
-        case UpdateSegments(toRemove, toAdd) => updateSegments(toRemove.map(_.id).toSet, toAdd)
+        case UpdateSegments(toAdd, toRemove) => updateSegments(toAdd, toRemove.map(_.id).toSet)
 
         case AddSegment(toAdd, toRemove) => addSegment(toAdd, toRemove)
 
@@ -203,7 +203,7 @@ class SSTable extends KeyValueMap {
       }
     }
 
-    def updateSegments(toRemoveIds: Set[Int], toAdd: List[SSTable]): Unit = {
+    def updateSegments(toAdd: List[SSTable], toRemoveIds: Set[Int]): Unit = {
       val State(oldSegments, oldMemoryTrees) = state
       state = State(toAdd ++ oldSegments.filterNot(s => toRemoveIds.contains(s.id)), oldMemoryTrees)
     }
@@ -217,8 +217,8 @@ class SSTable extends KeyValueMap {
 
         val State(oldSegments, oldMemoryTrees) = state
         val idsToRemove = oldMemoryTrees.map(_.id).reverse.takeWhile(blocking.isDefinedAt)
-        val (ss, ms) = idsToRemove.map(blocking).reverse.unzip
-        state = State(ss ++ oldSegments, oldMemoryTrees diff ms)
+        val (ss, _) = idsToRemove.map(blocking).reverse.unzip
+        state = State(ss ++ oldSegments, oldMemoryTrees.filterNot(t => idsToRemove.contains(t.id))
         blocking = blocking -- idsToRemove
       }
 
