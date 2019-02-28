@@ -28,12 +28,14 @@ object SSTEngine {
   )
 }
 
-class SSTEngine extends KeyValueMap {
+class SSTEngine(dbName: String, bufferSize: Int = 1024) extends KeyValueMap {
   import SSTEngine._
 
   private type Offset = Int
   private val UTF_8 = "UTF-8"
-  private val storingLocation = "."
+  private val storingLocation = s"resources/$dbName"
+  Files.createDirectory(Paths.get(storingLocation))
+
   private val tombstone = new String(Array[Byte](0, 1, 2, 3, 2, 1, 0, 1))
   lazy val genId: () => Int = {
     var id = -1
@@ -155,7 +157,7 @@ class SSTEngine extends KeyValueMap {
     *
     */
   private val worker: Runnable = () => {
-    val treeSizeThreshold = 5
+    val treeSizeThreshold = bufferSize
 
     while (true) {
       val op: Command = commandQueue.take()
@@ -203,7 +205,7 @@ class SSTEngine extends KeyValueMap {
         }
         val bytes = listOfArray.toArray.flatten
 
-        val fileName = Files.write(Paths.get(storingLocation).resolve(s"sst-$id"), bytes,
+        val fileName = Files.write(Paths.get(storingLocation).resolve(s"$dbName-sst-$id"), bytes,
           StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).toString
 
         commandQueue.put(AddSegment(SSTable(id, fileName, indexTree), memoryTree))
