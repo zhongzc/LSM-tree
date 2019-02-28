@@ -1,6 +1,7 @@
 package com.gaufoo
 
-import com.gaufoo.sst.{FakeDataGenerator, KeyValueMap, SSTEngine}
+import com.gaufoo.benchmark.FakeDataGenerator
+import com.gaufoo.sst.{KeyValueMap, SSTEngine}
 
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, ExecutionContext}
@@ -42,4 +43,5 @@ object Main extends App {
         |Throughput: ${size / delayInSeconds} operations/sec
      """.stripMargin
   }
+
 }

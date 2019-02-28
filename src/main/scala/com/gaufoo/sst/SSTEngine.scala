@@ -12,6 +12,7 @@ object SSTEngine {
   private val UTF_8 = "UTF-8"
   private type Offset = Int
   private val tombstone = new String(Array[Byte](0, 1, 2, 3, 2, 1, 0, 1))
+  private val debug = true
 
   /**
     * 两种Future执行环境
@@ -146,6 +147,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KeyValueMap {
   private[this] final case class SetKey(key: Key, value: Value, callback: Value => Unit) extends Command
   private[this] final case class UpdateSegments(toAdd: List[SSTable], toRemove: List[SSTable]) extends Command
   private[this] final case class AddSegment(toAdd: SSTable, toRemove: MemoryTree) extends Command
+  private[this] final case object PoisonPill extends Command
 
   private[this] val commandQueue: BlockingQueue[Command] = new LinkedBlockingQueue[Command]()
 
@@ -179,8 +181,9 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KeyValueMap {
     */
   private[this] val worker: Runnable = () => {
     val treeSizeThreshold = bufferSize
+    var someoneKillMe = false
 
-    while (true) {
+    while (!someoneKillMe) {
       val op: Command = commandQueue.take()
 
       op match {
@@ -189,6 +192,8 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KeyValueMap {
         case UpdateSegments(toAdd, toRemove) => updateSegments(toAdd, toRemove.map(_.id).toSet)
 
         case AddSegment(toAdd, toRemove) => addSegment(toAdd, toRemove)
+
+        case PoisonPill => someoneKillMe = true
       }
     }
 
@@ -276,7 +281,8 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KeyValueMap {
     }
 
   }
-  new Thread(worker).start()
+  val workerThread = new Thread(worker)
+  workerThread.start()
 
   /**
     * 后台运行的压缩工作线程，定时执行
@@ -290,5 +296,14 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KeyValueMap {
   }
 
   scheduledPool.scheduleWithFixedDelay(compactWorker, 10, 5, TimeUnit.SECONDS)
+
+  def shutdown(): Unit = {
+    commandQueue.put(PoisonPill)
+
+    if (debug) {
+      storePath.toFile.listFiles.foreach(p => Files.delete(p.toPath))
+      Files.delete(storePath)
+    }
+  }
 }
 

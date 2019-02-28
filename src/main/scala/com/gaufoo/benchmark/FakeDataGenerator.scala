@@ -1,4 +1,4 @@
-package com.gaufoo.sst
+package com.gaufoo.benchmark
 
 import java.io.PrintWriter
 import java.nio.file.Paths
