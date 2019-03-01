@@ -12,7 +12,6 @@ object SSTEngine {
   private val UTF_8 = "UTF-8"
   private type Offset = Int
   private val tombstone = new String(Array[Byte](0, 1, 2, 3, 2, 1, 0, 1))
-  private val debug = true
 
   /**
     * 两种Future执行环境
@@ -21,8 +20,8 @@ object SSTEngine {
     *
     * 另外还有定时任务执行环境，供后台压缩使用
     */
-  private implicit val globalExecutor: ExecutionContext = ExecutionContext.global
-  private val blockingExecutor: ExecutionContext = ExecutionContext.fromExecutorService(
+  private implicit val globalExecutor: ExecutionContextExecutor = ExecutionContext.global
+  private val blockingExecutor: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(
     Executors.newFixedThreadPool(20)
   )
   private val scheduledPool: ScheduledExecutorService = Executors.newScheduledThreadPool(4)
@@ -298,12 +297,8 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KeyValueMap {
   scheduledPool.scheduleWithFixedDelay(compactWorker, 10, 5, TimeUnit.SECONDS)
 
   def shutdown(): Unit = {
+    commandQueue.clear()
     commandQueue.put(PoisonPill)
-
-    if (debug) {
-      storePath.toFile.listFiles.foreach(p => Files.delete(p.toPath))
-      Files.delete(storePath)
-    }
   }
 }
 

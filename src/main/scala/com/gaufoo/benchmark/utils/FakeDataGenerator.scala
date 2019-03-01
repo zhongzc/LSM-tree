@@ -1,24 +1,28 @@
-package com.gaufoo.benchmark
+package com.gaufoo.benchmark.utils
 
 import java.io.PrintWriter
-import java.nio.file.Paths
+import java.nio.file.{Files, Paths}
 
 import com.gaufoo.{DelOp, GetOp, Op, SetOp}
+import org.slf4s.Logging
 
 import scala.collection.mutable.ArrayBuffer
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.util.Random
 
-object FakeDataGenerator {
-  def prepare(implicit ec: ExecutionContext): Future[Boolean] = {
+object FakeDataGenerator extends Logging {
+  def prepare(implicit ec: ExecutionContext): Future[Unit] = {
     Future {
+      if (Files.notExists(Paths.get("resources/data"))) {
+        Files.createDirectory(Paths.get("resources/data"))
+      }
+
       val l = List(50000, 100000, 250000, 500000, 1000000, 2000000)
       l.foreach{ i =>
         genSet(i)
         genGetSet(i)
       }
-
-      true
     }
   }
 
@@ -33,7 +37,7 @@ object FakeDataGenerator {
   }
 
   def genSet(number: Int): Unit = {
-    val writer = new PrintWriter(Paths.get(s"resources/set-$number.txt").toFile)
+    val writer = new PrintWriter(Paths.get(s"resources/data/set-$number.txt").toFile)
 
     for {_ <- 1 to number} {
       writer.println(s"set ${randomString(10)} ${randomString(30)}")
@@ -43,7 +47,7 @@ object FakeDataGenerator {
   }
 
   def genGetSet(number: Int): Unit = {
-    val writer = new PrintWriter(Paths.get(s"resources/get-set-$number.txt").toFile)
+    val writer = new PrintWriter(Paths.get(s"resources/data/get-set-$number.txt").toFile)
 
     val buffer = ArrayBuffer[Op]()
     buffer += SetOp(randomString(10), randomString(30))
@@ -63,5 +67,11 @@ object FakeDataGenerator {
     }
 
     writer.close()
+  }
+
+  def main(args: Array[String]): Unit = {
+    log.debug("Begin data generation")
+    Await.result(FakeDataGenerator.prepare(ExecutionContext.global), Duration.Inf)
+    log.debug("End data generation")
   }
 }
