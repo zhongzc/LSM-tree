@@ -20,13 +20,8 @@ object SSTEngine {
     *
     * 另外还有定时任务执行环境，供后台压缩使用
     */
-  private implicit val globalExecutor: ExecutionContextExecutor = ExecutionContext.global
-  private val blockingExecutor: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(
-    Executors.newFixedThreadPool(20)
-  )
-  private val scheduledPool: ScheduledExecutorService = Executors.newScheduledThreadPool(4)
 
-  def build(dbName: String, bufferSize: Int = 1024): SSTEngine = {
+  def build(dbName: String, bufferSize: Int = 1800): SSTEngine = {
     new SSTEngine(dbName, bufferSize)
   }
 }
@@ -299,6 +294,14 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KeyValueMap {
   def shutdown(): Unit = {
     commandQueue.clear()
     commandQueue.put(PoisonPill)
+    blockingExecutor.shutdown()
+    scheduledPool.shutdown()
   }
+
+  private implicit lazy val globalExecutor: ExecutionContextExecutor = ExecutionContext.global
+  private lazy val blockingExecutor: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(
+    Executors.newFixedThreadPool(20)
+  )
+  private lazy val scheduledPool: ScheduledExecutorService = Executors.newScheduledThreadPool(4)
 }
 

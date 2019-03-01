@@ -16,7 +16,8 @@ object LatencyBenchmark {
 
   def runBenchmark(
     ops: List[Op],
-    cps: CommandsPerSecond = CommandsPerSecond(20000)): Unit = {
+    cps: CommandsPerSecond = CommandsPerSecond(50000)): Unit = {
+    val sst = SSTEngine.build("latency")
 
     @tailrec
     def sendCommands(
@@ -60,10 +61,12 @@ object LatencyBenchmark {
                 (command, batchOffsetInMs + commandOffsetInMs)
             }
         },
-      SSTEngine.build("latency"),
+      sst,
       System.currentTimeMillis(),
       new HdrHistogramReservoir())
 
+    Thread.sleep(2000)
+    sst.shutdown()
     printSnapshot(histogram.getSnapshot)
   }
 }

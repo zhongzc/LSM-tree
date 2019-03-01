@@ -43,7 +43,7 @@ package object utils extends Logging {
         """.stripMargin
   }
 
-  def getOps(size: Int = 2000000, ops: String = "get-set"): List[Op] = {
+  def getOps(size: Int = 500000, ops: String = "get-set"): List[Op] = {
     Source.fromFile(s"resources/data/$ops-$size.txt").getLines.map(_.split(" ")).map(l => l(0) match {
       case "set" => SetOp(l(1), l(2))
       case "get" => GetOp(l(1))
