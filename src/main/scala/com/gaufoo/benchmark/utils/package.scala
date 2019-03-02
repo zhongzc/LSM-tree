@@ -1,7 +1,6 @@
 package com.gaufoo.benchmark
 
 import com.codahale.metrics.Snapshot
-import com.gaufoo.Op
 import com.gaufoo.sst.KVEngine
 import org.slf4s.Logging
 

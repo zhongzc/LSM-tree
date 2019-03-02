@@ -1,5 +1,4 @@
-package com.gaufoo
-
+package com.gaufoo.benchmark.utils
 
 import com.gaufoo.sst.KVEngine
 import scala.concurrent.Future

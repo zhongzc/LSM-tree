@@ -291,7 +291,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
 
   scheduledPool.scheduleWithFixedDelay(compactWorker, 10, 5, TimeUnit.SECONDS)
 
-  override def shutdown(): Unit = {
+  def shutdown(): Unit = {
     commandQueue.clear()
     commandQueue.put(PoisonPill)
     blockingExecutor.shutdown()

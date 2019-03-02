@@ -1,6 +1,6 @@
 package com.gaufoo.benchmark.throughput
 
-import com.gaufoo.Op
+import com.gaufoo.benchmark.utils._
 import com.gaufoo.sst.KVEngine
 
 object ThroughputBenchmark {

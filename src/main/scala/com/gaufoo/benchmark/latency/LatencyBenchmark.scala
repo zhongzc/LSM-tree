@@ -1,6 +1,5 @@
 package com.gaufoo.benchmark.latency
 
-import com.gaufoo.Op
 import com.gaufoo.benchmark.utils._
 import com.gaufoo.sst.KVEngine
 import org.mpierce.metrics.reservoir.hdrhistogram.HdrHistogramReservoir

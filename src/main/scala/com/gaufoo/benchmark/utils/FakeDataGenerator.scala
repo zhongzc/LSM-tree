@@ -3,7 +3,6 @@ package com.gaufoo.benchmark.utils
 import java.io.PrintWriter
 import java.nio.file.{Files, Paths}
 
-import com.gaufoo.{DelOp, GetOp, Op, SetOp}
 import org.slf4s.Logging
 
 import scala.collection.mutable.ArrayBuffer
