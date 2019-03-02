@@ -1,19 +1,13 @@
 package com.gaufoo.benchmark.throughput
 
-import com.gaufoo.sst.SSTEngine
-import com.gaufoo.{DelOp, GetOp, Op, SetOp}
+import com.gaufoo.Op
+import com.gaufoo.sst.KVEngine
 
 object ThroughputBenchmark {
-  def runBenchmark(ops: List[Op]): Unit = {
-
-    val s = SSTEngine.build("throughput")
+  def runBenchmark(kvEngine: KVEngine, ops: List[Op]): Unit = {
 
     val start = System.currentTimeMillis()
-    ops foreach {
-      case SetOp(k, v) => s.set(k, v)
-      case GetOp(k)    => s.get(k)
-      case DelOp(k)    => s.delete(k)
-    }
+    ops foreach { _.sendTo(kvEngine) }
     val end = System.currentTimeMillis()
     val delayInSeconds = (end - start) / 1000.0
 
@@ -23,7 +17,5 @@ object ThroughputBenchmark {
           |Throughput: ${ops.size / delayInSeconds} operations/sec
      """.stripMargin
     }
-
-    s.shutdown()
   }
 }

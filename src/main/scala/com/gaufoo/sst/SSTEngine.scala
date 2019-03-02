@@ -26,7 +26,7 @@ object SSTEngine {
   }
 }
 
-class SSTEngine(dbName: String, bufferSize: Int) extends KeyValueMap {
+class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
   import SSTEngine._
 
   private[this] val storePath: Path = Paths.get(s"resources/$dbName")
@@ -291,7 +291,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KeyValueMap {
 
   scheduledPool.scheduleWithFixedDelay(compactWorker, 10, 5, TimeUnit.SECONDS)
 
-  def shutdown(): Unit = {
+  override def shutdown(): Unit = {
     commandQueue.clear()
     commandQueue.put(PoisonPill)
     blockingExecutor.shutdown()

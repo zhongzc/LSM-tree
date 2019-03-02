@@ -1,30 +1,32 @@
 package com.gaufoo.benchmark.latency
 
+import com.gaufoo.Op
 import com.gaufoo.benchmark.utils._
-import com.gaufoo.sst.SSTEngine
-import com.gaufoo.{DelOp, GetOp, Op, SetOp}
+import com.gaufoo.sst.KVEngine
 import org.mpierce.metrics.reservoir.hdrhistogram.HdrHistogramReservoir
+import org.slf4s.Logging
 
 import scala.annotation.tailrec
 import scala.concurrent.ExecutionContext
 
-object LatencyBenchmark {
+object LatencyBenchmark extends Logging  {
 
   case class CommandsPerSecond(value: Int) extends AnyVal
   case class BenchmarkIterationCount(value: Int) extends AnyVal
   case class CommandSentTimestamp(value: Long) extends AnyVal
 
   def runBenchmark(
+    kvEngine: KVEngine,
     ops: List[Op],
     cps: CommandsPerSecond = CommandsPerSecond(50000)): Unit = {
-    val sst = SSTEngine.build("latency")
+    log.debug("Begin latency benchmark")
 
     @tailrec
-    def sendCommands(
+    def sendOperations(
       xs: List[(Op, Int)],
-      sst: SSTEngine,
+      kvEngine: KVEngine,
       testStart: Long,
-      histogram: HdrHistogramReservoir): (SSTEngine, HdrHistogramReservoir) = xs match {
+      histogram: HdrHistogramReservoir): (KVEngine, HdrHistogramReservoir) = xs match {
 
       case head :: tail =>
         val (op, offsetInMs) = head
@@ -34,21 +36,17 @@ object LatencyBenchmark {
           // keep the thread busy while waiting for the next batch to be sent
         }
 
-        (op match {
-          case SetOp(k, v) => sst.set(k, v)
-          case GetOp(k)    => sst.get(k)
-          case DelOp(k)    => sst.delete(k)
-        }).foreach { _ =>
+        op.sendTo(kvEngine).foreach { _ =>
           val operationEnd = System.currentTimeMillis()
           histogram.update(operationEnd - shouldStart)
         }(ExecutionContext.global)
 
-        sendCommands(tail, sst, testStart, histogram)
+        sendOperations(tail, kvEngine, testStart, histogram)
 
-      case Nil => (sst, histogram)
+      case Nil => (kvEngine, histogram)
     }
 
-    val (_, histogram) = sendCommands(
+    val (_, histogram) = sendOperations(
       ops.grouped(cps.value).toList.zipWithIndex
         .flatMap {
           case (secondBatch, sBatchIndex) =>
@@ -61,12 +59,13 @@ object LatencyBenchmark {
                 (command, batchOffsetInMs + commandOffsetInMs)
             }
         },
-      sst,
+      kvEngine,
       System.currentTimeMillis(),
       new HdrHistogramReservoir())
 
     Thread.sleep(2000)
-    sst.shutdown()
     printSnapshot(histogram.getSnapshot)
+
+    log.debug("End latency benchmark")
   }
 }
