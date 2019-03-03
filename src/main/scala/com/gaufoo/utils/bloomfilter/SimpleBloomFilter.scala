@@ -2,8 +2,6 @@ package com.gaufoo.utils.bloomfilter
 
 import java.util.concurrent.atomic.AtomicInteger
 
-import org.slf4s.{LoggerFactory, Logging}
-
 /**
   * bloom filter，概率数据结构，用于判断给定的key(字符串)是否被添加过到数据集中。
   * 默认使用String本身的hashCode()。
@@ -28,11 +26,6 @@ class SimpleBloomFilter(m: Int, numberOfHashes: Int, hashFunction: String => Int
     counter.getAndIncrement()
   }
 
-  /**
-    * 判断给定的key是否已添加过到数据集中。
-    * @return 如果该key__可能__存在于数据集中，返回true;<br/>
-    *         如果该key__一定__不存在于数据集中，返回false;
-    */
   override def mightContain(key: String): Boolean = {
     indexSeqOf(key).forall(i => seq(i))
   }
@@ -50,21 +43,20 @@ class SimpleBloomFilter(m: Int, numberOfHashes: Int, hashFunction: String => Int
 }
 
 object SimpleBloomFilter {
-  def apply[T](numberOfItems: Long, falsePositiveRate: Double): SimpleBloomFilter = {
+  def apply(numberOfItems: Int, falsePositiveRate: Double): SimpleBloomFilter = {
 
-    // 通过给定的数量和false positive rate，计算出需要多大的容量和哈希次数`
+    // 通过给定的数量和false positive rate，计算出需要多大的容量和哈希次数
     val sz = optimalSize(numberOfItems, falsePositiveRate)
     val nh = optimalNumberOfHashes(numberOfItems, sz)
-//    LoggerFactory.getLogger(this.getClass).debug(s"size: $sz, hashes: $nh")
 
     new SimpleBloomFilter(sz, nh)
   }
 
-  def optimalSize(numberOfItems: Long, falsePositiveRate: Double): Int = {
+  def optimalSize(numberOfItems: Int, falsePositiveRate: Double): Int = {
     math.ceil(-1 * numberOfItems * math.log(falsePositiveRate) / math.log(2) / math.log(2)).toInt
   }
 
-  def optimalNumberOfHashes(numberOfItems: Long, size: Int): Int = {
+  def optimalNumberOfHashes(numberOfItems: Int, size: Int): Int = {
     math.ceil(size / numberOfItems * math.log(2)).toInt
   }
 }
