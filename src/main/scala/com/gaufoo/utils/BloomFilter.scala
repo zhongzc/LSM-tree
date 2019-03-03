@@ -10,8 +10,7 @@ import java.util.concurrent.atomic.AtomicInteger
   * @param k 每个添加的元素都计算出k个索引值，通常，k应远小于m
   */
 class BloomFilter(m: Int, k: Int, hashFunction: String => Int = s => s.hashCode) {
-  private[this] val seq: Array[AtomicInteger] =
-    (0 until m).map(_ => new AtomicInteger(0)).toArray
+  private[this] val seq: Array[Boolean] = (0 until m).map(_ => false).toArray
   private[this] val initialValues = 0 until k
   private[this] val counter = new AtomicInteger(0)
 
@@ -20,13 +19,8 @@ class BloomFilter(m: Int, k: Int, hashFunction: String => Int = s => s.hashCode)
   }
 
   def set(key: String): Unit = {
-    indexSeqOf(key).foreach(i => seq(i).getAndIncrement())
+    indexSeqOf(key).foreach(i => seq(i) = true)
     counter.getAndIncrement()
-  }
-
-  def delete(key: String): Unit = {
-    indexSeqOf(key).foreach(i => seq(i).getAndDecrement())
-    counter.getAndDecrement()
   }
 
   /**
@@ -35,7 +29,7 @@ class BloomFilter(m: Int, k: Int, hashFunction: String => Int = s => s.hashCode)
     *         如果该key__一定__不存在于数据集中，返回false;
     */
   def contains(key: String): Boolean = {
-    indexSeqOf(key).forall(i => seq(i).get() > 0)
+    indexSeqOf(key).forall(i => seq(i))
   }
 
   def size: Int = counter.get()
