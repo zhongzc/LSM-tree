@@ -13,8 +13,10 @@ import scala.util.Random
 object FakeDataGenerator extends Logging {
   def prepare(implicit ec: ExecutionContext): Future[Unit] = {
     Future {
+
       if (Files.notExists(Paths.get("resources/data"))) {
-        Files.createDirectory(Paths.get("resources/data"))
+        val dir = Files.createDirectories(Paths.get("resources/data"))
+        log.debug(s"Created directory: ${dir.toString}")
       }
 
       val l = List(50000, 100000, 250000, 500000, 1000000, 2000000)
