@@ -1,4 +1,4 @@
-package com.gaufoo.utils
+package com.gaufoo.utils.bloomFilter
 
 import com.gaufoo.utils.bloomfilter.SimpleBloomFilter
 import org.scalatest.{FlatSpec, Matchers}
@@ -39,8 +39,8 @@ class BloomFilterTest extends FlatSpec with Logging with Matchers {
       }
     )
 
-    log.debug(s"Theory false positive rate: ${bloomFilter.falsePositiveProbability}")
-    log.debug(s"Actual false positive rate: ${falsePositive * 1.0 / total}")
+    log.debug(s"Theoretical false positive rate: ${bloomFilter.falsePositiveProbability}")
+    log.debug(s"Actual      false positive rate: ${falsePositive * 1.0 / total}")
 
   }
 }
