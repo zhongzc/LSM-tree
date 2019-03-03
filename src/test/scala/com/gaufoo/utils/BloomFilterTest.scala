@@ -1,5 +1,6 @@
 package com.gaufoo.utils
 
+import com.gaufoo.utils.bloomfilter.SimpleBloomFilter
 import org.scalatest.{FlatSpec, Matchers}
 import org.slf4s.Logging
 
@@ -19,18 +20,18 @@ class BloomFilterTest extends FlatSpec with Logging with Matchers {
   "BloomFilter" should "be able to work" in {
     val maxLength = 50
 
-    val bloomFilter = new BloomFilter(300, 5)
+    val bloomFilter = SimpleBloomFilter(5000, 0.01)
 
-    val dataSet = (1 to 50).map(_ => randomString(maxLength))
+    val dataSet = (1 to 5000).map(_ => randomString(maxLength))
     dataSet.foreach(bloomFilter.set)
-    val unrelatedDataSet = (1 to 50).map(_ => randomString(maxLength))
+    val unrelatedDataSet = (1 to 5000).map(_ => randomString(maxLength))
     val mixedDataSet = dataSet ++ unrelatedDataSet
 
     var falsePositive = 0
     var total = 0
 
     mixedDataSet.foreach(s =>
-      if (bloomFilter.contains(s)) {
+      if (bloomFilter.mightContain(s)) {
         if (!dataSet.contains(s)) falsePositive += 1
         total += 1
       } else {

@@ -4,6 +4,8 @@ import java.nio.ByteBuffer
 import java.nio.file.{Files, Path, Paths, StandardOpenOption}
 import java.util.concurrent._
 
+import com.gaufoo.utils.bloomfilter.BloomFilter
+
 import scala.collection.immutable.TreeMap
 import scala.concurrent._
 import scala.concurrent.Future
@@ -69,22 +71,30 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
   private[this] var state = initState(storePath)
 
   /**
+    * 布隆过滤器，预过滤不存在的键，以加快查询
+    */
+  private[this] val bloomFilter: BloomFilter = BloomFilter.default(10000, 0.1)
+
+  /**
     * 查找特定的键，先从内存表中查找，接下来从段文件中找。
     *
     * @param key 需要查找的键
     * @return 返回查找结果
     */
   override def get(key: Key): Future[Option[Value]] = {
-    // TODO: 用Bloom Filter预过滤一遍
-
-    val State(segments, memTables) = state
-    getFromMemory(key, memTables).flatMap(value =>
-      (if (value.isEmpty) {
-        getFromSegments(key, segments)
-      } else {
-        Future.successful(value)
-      }).map(ov => ov.flatMap(v => if (v == tombstone) None else Option(v)))
-    )
+//     用Bloom Filter过滤一下
+    if (bloomFilter.mightContain(key)) {
+      val State(segments, memTables) = state
+      getFromMemory(key, memTables).flatMap(value =>
+        (if (value.isEmpty) {
+          getFromSegments(key, segments)
+        } else {
+          Future.successful(value)
+        }).map(ov => ov.flatMap(v => if (v == tombstone) None else Option(v)))
+      )
+    } else {
+      Future.successful(None)
+    }
   }
 
   /**
@@ -156,6 +166,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
     val f = Promise[Value]()
 
     commandQueue.put(SetKey(key, value, { v =>
+      bloomFilter.set(key)
       f.success(v)
     }))
 
@@ -291,7 +302,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
 
   scheduledPool.scheduleWithFixedDelay(compactWorker, 10, 5, TimeUnit.SECONDS)
 
-  def shutdown(): Unit = {
+  override def shutdown(): Unit = {
     commandQueue.clear()
     commandQueue.put(PoisonPill)
     blockingExecutor.shutdown()
