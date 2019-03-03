@@ -49,7 +49,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
     */
   private[this] def initState(storePath: Path): State = {
     if (Files.notExists(storePath)) {
-      Files.createDirectory(storePath)
+      Files.createDirectories(storePath)
       State(List(), List(MemoryTree(genId(), TreeMap[Key, Value]())))
     } else {
 
