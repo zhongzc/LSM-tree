@@ -4,11 +4,7 @@ import com.gaufoo.sst.KVEngine
 import scala.concurrent.Future
 
 abstract class Op(val op: String, val params: String*) {
-  def sendTo(kvEngine: KVEngine): Future[Any] = this match  {
-    case SetOp(k, v) => kvEngine.set(k, v)
-    case GetOp(k)    => kvEngine.get(k)
-    case DelOp(k)    => kvEngine.delete(k)
-  }
+  def sendTo(kvEngine: KVEngine): Future[Any]
 }
 
 object Op {
@@ -22,6 +18,14 @@ object Op {
   }
 }
 
-final case class SetOp(key: String, value: String) extends Op("set", key, value)
-final case class GetOp(key: String) extends Op("get", key)
-final case class DelOp(key: String) extends Op("del", key)
+final case class SetOp(key: String, value: String) extends Op("set", key, value) {
+  override def sendTo(kvEngine: KVEngine): Future[Any] = kvEngine.set(key, value)
+}
+
+final case class GetOp(key: String) extends Op("get", key) {
+  override def sendTo(kvEngine: KVEngine): Future[Any] = kvEngine.get(key)
+}
+
+final case class DelOp(key: String) extends Op("del", key) {
+  override def sendTo(kvEngine: KVEngine): Future[Any] = kvEngine.delete(key)
+}

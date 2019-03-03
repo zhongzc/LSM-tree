@@ -1,23 +1,15 @@
 package com.gaufoo
 
-import com.gaufoo.benchmark.latency.LatencyBenchmark
-import com.gaufoo.benchmark.throughput.ThroughputBenchmark
-import com.gaufoo.benchmark.utils._
-import com.gaufoo.sst.SSTEngine
-
-import scala.concurrent.Await
-import scala.concurrent.duration.Duration
+import com.gaufoo.sst.KVEngine
 
 object Main extends App {
-  val warmup = SSTEngine.build("warmup")
-  Await.result(jvmWarmUp(warmup), Duration.Inf)
-  warmup.shutdown()
+  import scala.concurrent.ExecutionContext.Implicits.global
 
-//  val throughput = SSTEngine.build("throughput")
-//  ThroughputBenchmark.runBenchmark(throughput, getOps())
-//  throughput.shutdown()
-
-  val latency = SSTEngine.build("latency", 1500)
-  LatencyBenchmark.runBenchmark(latency, getOps(250000, "set"))
-  latency.shutdown()
+  val kvMap = KVEngine.default("sample")
+  kvMap.set("key1", "value1").foreach(_ =>
+    kvMap.get("key1").foreach { case Some(v) =>
+      println(s"get $v, expected value1, passed: ${v == "value1"}")
+      kvMap.shutdown()
+    }
+  )
 }

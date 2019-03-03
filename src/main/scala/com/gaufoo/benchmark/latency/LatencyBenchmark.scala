@@ -1,12 +1,13 @@
 package com.gaufoo.benchmark.latency
 
 import com.gaufoo.benchmark.utils._
-import com.gaufoo.sst.KVEngine
+import com.gaufoo.sst.{KVEngine, SSTEngine}
 import org.mpierce.metrics.reservoir.hdrhistogram.HdrHistogramReservoir
 import org.slf4s.Logging
 
 import scala.annotation.tailrec
-import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContext}
 
 object LatencyBenchmark extends Logging  {
 
@@ -17,8 +18,8 @@ object LatencyBenchmark extends Logging  {
   def runBenchmark(
     kvEngine: KVEngine,
     ops: List[Op],
-    cps: CommandsPerSecond = CommandsPerSecond(50000)): Unit = {
-    log.debug("Begin latency benchmark")
+    cps: CommandsPerSecond = CommandsPerSecond(20000)): Unit = {
+    log.debug("Begin latency benchmarking")
 
     @tailrec
     def sendOperations(
@@ -65,6 +66,16 @@ object LatencyBenchmark extends Logging  {
     Thread.sleep(2000)
     printSnapshot(histogram.getSnapshot)
 
-    log.debug("End latency benchmark")
+    log.debug("End latency benchmarking")
+  }
+
+  def main(args: Array[String]): Unit = {
+    val warmUp = SSTEngine.build("warmUp")
+    Await.result(jvmWarmUp(warmUp), Duration.Inf)
+    warmUp.shutdown()
+
+    val latency = SSTEngine.build("latency", 1500)
+    LatencyBenchmark.runBenchmark(latency, getOps(100000))
+    latency.shutdown()
   }
 }
