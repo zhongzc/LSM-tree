@@ -2,6 +2,8 @@ package com.gaufoo.utils.bloomfilter
 
 import java.util.concurrent.atomic.AtomicInteger
 
+import scala.collection.mutable
+
 /**
   * bloom filter，概率数据结构，用于判断给定的key(字符串)是否被添加过到数据集中。
   * 默认使用String本身的hashCode()。
@@ -10,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger
   * @param numberOfHashes 每个添加的元素都计算出k个索引值，通常，k应远小于m
   */
 class SimpleBloomFilter(m: Int, numberOfHashes: Int, hashFunction: String => Int = s => s.hashCode) extends BloomFilter {
-  private[this] val seq: Array[Boolean] = (0 until m).map(_ => false).toArray
+  private[this] val seq: mutable.BitSet = new mutable.BitSet(m)
   private[this] val counter = new AtomicInteger(0)
 
   private def indexSeqOf(key: String): Seq[Int] = {

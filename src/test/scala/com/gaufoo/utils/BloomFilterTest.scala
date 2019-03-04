@@ -24,7 +24,7 @@ class BloomFilterTest extends FlatSpec with Logging with Matchers {
 
     val dataSet = (1 to 5000).map(_ => randomString(maxLength))
     dataSet.foreach(bloomFilter.set)
-    val unrelatedDataSet = (1 to 5000).map(_ => randomString(maxLength))
+    val unrelatedDataSet = (1 to 2500).map(_ => randomString(maxLength))
     val mixedDataSet = dataSet ++ unrelatedDataSet
 
     var falsePositive = 0
