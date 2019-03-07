@@ -33,7 +33,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
 
   private[this] val storePath: Path = Paths.get(s"resources/$dbName")
 
-  lazy val genId: () => Int = {
+  private[this] lazy val genId: () => Int = {
     var id = -1
     val inner = () => { id = id + 1;  id }
     inner
@@ -286,7 +286,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
     }
 
   }
-  val workerThread = new Thread(worker)
+  private[this] val workerThread = new Thread(worker)
   workerThread.start()
 
   /**
