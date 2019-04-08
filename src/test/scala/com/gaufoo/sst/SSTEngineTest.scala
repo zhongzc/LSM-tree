@@ -10,14 +10,14 @@ import scala.concurrent.{Await, Future}
 class SSTEngineTest extends BasicAsyncFlatSpec {
   import BasicAsyncFlatSpec._
 
-  "build" should "create a folder at first" in withTestEngine(bufferSize = 20) { _ =>
+  "build" should "create a folder at first" in withTestEngine(bufferSize = 1500) { _ =>
     val file = Paths.get(dbLocation).toFile
     file.exists() shouldBe true
     file should be a 'directory
   }
 
   "a key-value pair" should "be able to retrieve after being set" in
-    withTestEngine(bufferSize = 20) { engine =>
+    withTestEngine(bufferSize = 1500) { engine =>
       val (key, value) = "testKey" -> "testVal"
       engine.set(key, value).foreach { _ =>
         engine.get(key).foreach(v =>
@@ -26,9 +26,9 @@ class SSTEngineTest extends BasicAsyncFlatSpec {
     }
 
   "a key" should "not contained in map after being deleted" in
-    withTestEngine(bufferSize = 20) { engine =>
+    withTestEngine(bufferSize = 1500) { engine =>
       val (key, value) = "test1" -> "test2"
-      val kvPairs = (1 to 1000).map(i => (i.toString, i.toString))
+      val kvPairs = (1 to 100000).map(i => (i.toString, i.toString))
 
       for {
         _ <- engine.set(key, value)
@@ -39,21 +39,21 @@ class SSTEngineTest extends BasicAsyncFlatSpec {
       } yield result shouldBe empty
     }
 
-  "retrieve a non-exist key" should "return none" in withTestEngine(bufferSize = 20) { engine =>
-    val kvPairs = (1 to 1000).map(i => (i.toString, i.toString))
+  "retrieve a non-exist key" should "return none" in withTestEngine(bufferSize = 1500) { engine =>
+    val kvPairs = (1 to 100000).map(i => (i.toString, i.toString))
     val fvs = kvPairs.map { case (k, v) => engine.set(k, v)}
 
     for {
       _ <- Future.sequence(fvs)
-      result <- engine.get("1001")
+      result <- engine.get("100001")
     } yield result shouldBe empty
   }
 
   "setting, deleting and getting random data" should "behave normally" in
-    withTestEngine(bufferSize = 20) { engine =>
+    withTestEngine(bufferSize = 1500) { engine =>
       val maxLength = 50
       val value = "test"
-      val dataSet = (1 to 1000).map(_ => randomString(maxLength)).toSet
+      val dataSet = (1 to 100000).map(_ => randomString(maxLength)).toSet
       val (deletedDateSet, savedDataSet) = dataSet.splitAt(dataSet.size / 2)
 
       dataSet.foreach(s => Await.result(engine.set(s, value), Duration.Inf))
