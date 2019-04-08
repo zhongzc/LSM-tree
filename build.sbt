@@ -8,4 +8,6 @@ lazy val root = (project in file("."))
       libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3",
       libraryDependencies += "org.mpierce.metrics.reservoir" % "hdrhistogram-metrics-reservoir" % "1.1.0",
       libraryDependencies += "org.scalatest" % "scalatest_2.12" % "3.0.5" % "test"
-    )
+    ).dependsOn(rbt)
+
+lazy val rbt = project in file("redblacktree")

@@ -4,9 +4,9 @@ import java.nio.ByteBuffer
 import java.nio.file.{Files, Path, Paths, StandardOpenOption}
 import java.util.concurrent._
 
+import com.gaufoo.collection.immutable.TreeMap
 import com.gaufoo.utils.bloomfilter.BloomFilter
 
-import scala.collection.immutable.TreeMap
 import scala.concurrent._
 import scala.concurrent.Future
 
@@ -23,7 +23,7 @@ object SSTEngine {
     * 另外还有定时任务执行环境，供后台压缩使用
     */
 
-  def build(dbName: String, bufferSize: Int = 1800): SSTEngine = {
+  def build(dbName: String, bufferSize: Int = 1500): SSTEngine = {
     new SSTEngine(dbName, bufferSize)
   }
 }
@@ -198,7 +198,10 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
 
         case AddSegment(toAdd, toRemove) => addSegment(toAdd, toRemove)
 
-        case PoisonPill => someoneKillMe = true
+        case PoisonPill =>
+          someoneKillMe = true
+          blockingExecutor.shutdown()
+          scheduledPool.shutdown()
       }
     }
 
@@ -208,7 +211,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
       */
     def setKey(key: Key, value: Value, callback: Value => Unit): Unit = {
       val State(oldSegments, MemoryTree(id, oldTree) :: others) = state
-      val newTree = MemoryTree(id, oldTree.updated(key, value))
+      val newTree = MemoryTree(id, oldTree.insert(key, value))
       var trees = newTree :: others
 
       if (newTree.tree.size >= treeSizeThreshold) {
@@ -239,7 +242,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
             (acc :+ bfk.putInt(keyBytes.length).array() :+ keyBytes :+
               bfv.putInt(valueBytes.length).array() :+ valueBytes,
               accOffset,
-              iTree.updated(key, offset))
+              iTree.insert(key, offset))
         }
         val bytes = listOfArray.toArray.flatten
 
@@ -304,10 +307,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
   scheduledPool.scheduleWithFixedDelay(compactWorker, 10, 5, TimeUnit.SECONDS)
 
   override def shutdown(): Unit = {
-    commandQueue.clear()
     commandQueue.put(PoisonPill)
-    blockingExecutor.shutdown()
-    scheduledPool.shutdown()
   }
 
   private implicit lazy val globalExecutor: ExecutionContextExecutor = ExecutionContext.global
