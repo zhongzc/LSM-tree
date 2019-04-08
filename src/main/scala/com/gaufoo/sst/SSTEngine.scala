@@ -296,6 +296,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
     if (state.segments.size <= 1) {
       commandQueue.put(UpdateSegments(List(), List()))
     } else {
+      // TODO
 
     }
   }
@@ -315,4 +316,3 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
   )
   private lazy val scheduledPool: ScheduledExecutorService = Executors.newScheduledThreadPool(4)
 }
-

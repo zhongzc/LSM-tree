@@ -75,7 +75,7 @@ object LatencyBenchmark extends Logging  {
     warmUp.shutdown()
 
     val latency = SSTEngine.build("latency", 1500)
-    LatencyBenchmark.runBenchmark(latency, getOps(100000))
+    LatencyBenchmark.runBenchmark(latency, getOps(500000))
     latency.shutdown()
   }
 }

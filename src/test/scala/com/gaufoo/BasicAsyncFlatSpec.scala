@@ -31,7 +31,7 @@ class BasicAsyncFlatSpec extends AsyncFlatSpec with Matchers with Logging {
 
 object BasicAsyncFlatSpec {
   def randomString(maxLength: Int): String = {
-    val l = Random.nextInt(maxLength + 1)
+    val l = Random.nextInt(maxLength) + 1
     val result = new mutable.StringBuilder()
     for (_ <- 1 to l) {
       result.append(Random.nextPrintableChar())

@@ -4,7 +4,8 @@ import java.nio.file._
 
 import com.gaufoo.BasicAsyncFlatSpec
 
-import scala.concurrent.Future
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, Future}
 
 class SSTEngineTest extends BasicAsyncFlatSpec {
   import BasicAsyncFlatSpec._
@@ -52,18 +53,18 @@ class SSTEngineTest extends BasicAsyncFlatSpec {
     withTestEngine(bufferSize = 20) { engine =>
       val maxLength = 50
       val value = "test"
-      val dataSet = (1 to 1000).map(_ => randomString(maxLength))
-      val (deletedDateSet, savedDataSet) = dataSet.splitAt(500)
+      val dataSet = (1 to 1000).map(_ => randomString(maxLength)).toSet
+      val (deletedDateSet, savedDataSet) = dataSet.splitAt(dataSet.size / 2)
 
-      for {
-        _ <- Future.sequence(dataSet.map(engine.set(_, value)))
-        _ <- Future.sequence(deletedDateSet.map(engine.delete))
-        ss <- Future.sequence(savedDataSet.map(engine.get))
-        ds <- Future.sequence(deletedDateSet.map(engine.get))
-      } yield {
-        assert(ss.forall(_.nonEmpty))
-        assert(ds.forall(_.isEmpty))
-      }
+      dataSet.foreach(s => Await.result(engine.set(s, value), Duration.Inf))
+      deletedDateSet.foreach(s => Await.result(engine.delete(s), Duration.Inf))
+      val ss = savedDataSet.map(s => Await.result(engine.get(s), Duration.Inf))
+      val ds = deletedDateSet.map(s => Await.result(engine.get(s), Duration.Inf))
+
+      assert(ss.forall(_.nonEmpty))
+      assert(ds.forall(_.isEmpty))
+
+      succeed
     }
 
 }
