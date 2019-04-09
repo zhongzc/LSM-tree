@@ -71,16 +71,44 @@ class SSTEngineTest extends BasicAsyncFlatSpec {
   "setting, deleting and getting random number" should "behave normally" in
     withTestEngine(bufferSize = 1500) { engine =>
       var delNums = Set.empty[Int]
+      (1 to 30000).foreach(_ => delNums = delNums + Random.nextInt(100000))
+
+      (1 to 100000).foreach(i => Await.result(engine.set(i.toString, i.toString), Duration.Inf))
+      delNums.foreach(i => Await.result(engine.delete(i.toString), Duration.Inf))
+
+      (1 to 100000).foreach(i => {
+        val num = Await.result(engine.get(i.toString), Duration.Inf)
+        if (delNums.contains(i)) assert(num.isEmpty)
+        else assert(num.get == i.toString)
+      })
+
+      succeed
+    }
+
+  "get all keys in ascending order" should "behave normally" in
+    withTestEngine(bufferSize = 1500) { engine =>
+      var delNums = Set.empty[Int]
       (1 to 300000).foreach(_ => delNums = delNums + Random.nextInt(1000000))
 
       (1 to 1000000).foreach(i => Await.result(engine.set(i.toString, i.toString), Duration.Inf))
       delNums.foreach(i => Await.result(engine.delete(i.toString), Duration.Inf))
 
-      (1 to 1000000).foreach(i => {
-        val num = Await.result(engine.get(i.toString), Duration.Inf)
-        if (delNums.contains(i)) assert(num.isEmpty)
-        else assert(num.get == i.toString)
-      })
+      ((1 to 1000000).toSet -- delNums).toList.sorted.zip(Await.result(engine.allKeysAsc(), Duration.Inf))
+          .forall(a => a._1.toString == a._2)
+
+      succeed
+    }
+
+  "get all keys in descending order" should "behave normally" in
+    withTestEngine(bufferSize = 1500) { engine =>
+      var delNums = Set.empty[Int]
+      (1 to 300000).foreach(_ => delNums = delNums + Random.nextInt(1000000))
+
+      (1 to 1000000).foreach(i => Await.result(engine.set(i.toString, i.toString), Duration.Inf))
+      delNums.foreach(i => Await.result(engine.delete(i.toString), Duration.Inf))
+
+      ((1 to 1000000).toSet -- delNums).toList.sorted.reverse.zip(Await.result(engine.allKeysDes(), Duration.Inf))
+        .forall(a => a._1.toString == a._2)
 
       succeed
     }

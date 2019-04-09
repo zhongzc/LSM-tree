@@ -1,6 +1,5 @@
 package com.gaufoo.sst
 
-import java.io.{BufferedReader, InputStream, OutputStream}
 import java.nio.ByteBuffer
 import java.nio.channels.SeekableByteChannel
 import java.nio.file.{Files, Path, Paths, StandardOpenOption}
@@ -151,6 +150,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
 
       files = tras
     }
+
     checkFiles()
 
     def fileToSegment(path: Path): SSTable = {
@@ -333,12 +333,13 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
           blockingExecutor.shutdown()
           scheduledPool.shutdown()
 
-//          (state.curTree :: state.immTrees).foreach { memTree =>
-        //            val MemoryTree(id, tree) = memTree
-        //            val (bytes, indexTree) = kvTreeToBytesAndIndexTree(tree)
-        //            val path = Files.write(storePath.resolve(s"$dbName-sst-${id}_to_$id"), bytes,
-        //              StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
-        //          }
+          (state.curTree :: state.immTrees).foreach { memTree =>
+            log.debug(s"${memTree.id}")
+            val MemoryTree(id, tree) = memTree
+            val (bytes, _) = kvTreeToBytesAndIndexTree(tree)
+            Files.write(storePath.resolve(s"$dbName-sst-${id}_to_$id"), bytes,
+              StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+          }
       }
     }
 
@@ -512,4 +513,37 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
     Executors.newFixedThreadPool(20)
   )
   private lazy val scheduledPool: ScheduledExecutorService = Executors.newScheduledThreadPool(4)
+
+
+  override def allKeysAsc(): Future[List[Key]] = {
+    Future {
+      val State(segments, immTrees, curTree) = state
+      var treeMap = TreeMap.empty[Key, Unit]
+      segments.reverse.foreach { case SSTable(_, _, _, indexTree) =>
+        indexTree.foreach { case (k, (b, _)) => treeMap = if (b) treeMap.insert(k, Unit) else treeMap.remove(k) }
+      }
+      immTrees.reverse.foreach { case MemoryTree(_, tree) =>
+        tree.foreach { case (k, v) => treeMap = if (v.charAt(0) == 'v') treeMap.insert(k, Unit) else treeMap.remove(k) }
+      }
+      curTree.tree.foreach { case (k, v) => treeMap = if (v.charAt(0) == 'v') treeMap.insert(k, Unit) else treeMap.remove(k) }
+
+      treeMap.mapAsc{ case (k, _) => k }
+    }
+  }
+
+  override def allKeysDes(): Future[List[Key]] = {
+    Future {
+      val State(segments, immTrees, curTree) = state
+      var treeMap = TreeMap.empty[Key, Unit]
+      segments.reverse.foreach { case SSTable(_, _, _, indexTree) =>
+        indexTree.foreach { case (k, (b, _)) => treeMap = if (b) treeMap.insert(k, Unit) else treeMap.remove(k) }
+      }
+      immTrees.reverse.foreach { case MemoryTree(_, tree) =>
+        tree.foreach { case (k, v) => treeMap = if (v.charAt(0) == 'v') treeMap.insert(k, Unit) else treeMap.remove(k) }
+      }
+      curTree.tree.foreach { case (k, v) => treeMap = if (v.charAt(0) == 'v') treeMap.insert(k, Unit) else treeMap.remove(k) }
+
+      treeMap.mapDes{ case (k, _) => k }
+    }
+  }
 }

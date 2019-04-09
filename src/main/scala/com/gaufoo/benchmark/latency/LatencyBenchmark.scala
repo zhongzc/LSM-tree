@@ -18,7 +18,7 @@ object LatencyBenchmark extends Logging  {
   def runBenchmark(
     kvEngine: KVEngine,
     ops: List[Op],
-    cps: CommandsPerSecond = CommandsPerSecond(10000)): Unit = {
+    cps: CommandsPerSecond = CommandsPerSecond(20000)): Unit = {
     log.debug("Begin latency benchmarking")
 
     @tailrec
@@ -75,7 +75,7 @@ object LatencyBenchmark extends Logging  {
     warmUp.shutdown()
 
     val latency = SSTEngine.build("latency", 1500)
-    LatencyBenchmark.runBenchmark(latency, getOps(500000))
+    LatencyBenchmark.runBenchmark(latency, getOps(2000000))
     latency.shutdown()
   }
 }

@@ -10,8 +10,15 @@ trait Types {
 
 trait KVEngine extends Types {
   def set(key: Key, value: Value): Future[Value]
+
   def get(key: Key): Future[Option[Value]]
+
   def delete(key: Key): Future[Option[Value]]
+
+  def allKeysAsc(): Future[List[Key]]
+
+  def allKeysDes(): Future[List[Key]]
+
   def shutdown(): Unit
 }
 
