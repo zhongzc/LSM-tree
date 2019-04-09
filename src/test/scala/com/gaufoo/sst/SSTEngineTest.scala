@@ -6,6 +6,7 @@ import com.gaufoo.BasicAsyncFlatSpec
 
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future}
+import scala.util.Random
 
 class SSTEngineTest extends BasicAsyncFlatSpec {
   import BasicAsyncFlatSpec._
@@ -67,4 +68,20 @@ class SSTEngineTest extends BasicAsyncFlatSpec {
       succeed
     }
 
+  "setting, deleting and getting random number" should "behave normally" in
+    withTestEngine(bufferSize = 1500) { engine =>
+      var delNums = Set.empty[Int]
+      (1 to 30000).foreach(_ => delNums = delNums + Random.nextInt(100000))
+
+      (1 to 100000).foreach(i => Await.result(engine.set(i.toString, i.toString), Duration.Inf))
+      delNums.foreach(i => Await.result(engine.delete(i.toString), Duration.Inf))
+
+      (1 to 100000).foreach(i => {
+        val num = Await.result(engine.get(i.toString), Duration.Inf)
+        if (delNums.contains(i)) assert(num.isEmpty)
+        else assert(num.get == i.toString)
+      })
+
+      succeed
+    }
 }
