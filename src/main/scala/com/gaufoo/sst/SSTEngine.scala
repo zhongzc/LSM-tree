@@ -2,6 +2,7 @@ package com.gaufoo.sst
 
 import java.nio.ByteBuffer
 import java.nio.channels.SeekableByteChannel
+import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path, Paths, StandardOpenOption}
 
 import scala.collection.JavaConverters._
@@ -15,8 +16,6 @@ import scala.concurrent._
 import scala.concurrent.Future
 
 object SSTEngine extends Types {
-  private val UTF_8 = "UTF-8"
-
   def build(dbName: String, bufferSize: Int = 1500): SSTEngine = {
     new SSTEngine(dbName, bufferSize)
   }
@@ -49,55 +48,15 @@ object SSTEngine extends Types {
   final case class AddSegment(toAdd: SSTable, toRemove: MemoryTree) extends Command
 
   final case object PoisonPill extends Command
-
-  private def kvTreeToBytesAndIndexTree(tree: TreeMap[Key, Value], dropDel: Boolean = false): (Array[Byte], TreeMap[Key, (Boolean, Offset)]) = {
-    val intLength = 4
-    val (listOfArray, _, indexTree) = tree.foldLeft((Vector.empty[Array[Byte]], 0, TreeMap.empty[Key, (Boolean, Offset)])) {
-      case ((acc, offset, iTree), (key, value)) =>
-        val bfk = ByteBuffer.allocate(intLength)
-        val bfv = ByteBuffer.allocate(intLength)
-
-        val keyBytes = key.getBytes(UTF_8)
-        val valueBytes = value.getBytes(UTF_8)
-        if (!dropDel || value.charAt(0) == 'v') {
-          val accOffset = intLength + keyBytes.length + intLength + valueBytes.length + offset
-          (acc :+ bfk.putInt(keyBytes.length).array() :+ keyBytes :+
-            bfv.putInt(valueBytes.length).array() :+ valueBytes,
-            accOffset,
-            iTree.insert(key, (value.charAt(0) == 'v', offset)))
-        } else {
-          (acc, offset, iTree)
-        }
-    }
-    val bytes = listOfArray.toArray.flatten
-    (bytes, indexTree)
-  }
-
-  private def deleteFile(path: Path): Unit = {
-    val parent = path.getParent
-    val newName = parent.resolve("drop").resolve(path.getFileName)
-    //            log.debug(s"updateSegments Future: $newName")
-    if (Files.notExists(newName.getParent)) Files.createDirectory(newName.getParent)
-    Files.move(path, newName)
-  }
-
-  private def readInt(buf: ByteBuffer, channel: SeekableByteChannel): Option[Int] = {
-    if (channel.read(buf) > 0) {
-      buf.flip()
-      val i = buf.getInt
-      buf.clear()
-      Option(i)
-    } else None
-  }
 }
 
 class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
-  private val log = LoggerFactory.getLogger(this.getClass)
-
   import SSTEngine._
-
+  private[this] val _log = LoggerFactory.getLogger(this.getClass)
+  private[this] var _isShutdown = false
   private[this] val storePath: Path = Paths.get(s"resources/$dbName")
 
+  // id generator
   private[this] var idFrom = 0
   private[this] lazy val genId: () => Int = {
     val inner = () => {
@@ -184,7 +143,6 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
     }
 
     val segments = files.map(path => fileToSegment(path)).sortBy(-_.idFrom)
-
     idFrom = segments.headOption.map(_.idTo + 1).getOrElse(0)
     State(segments, List(), MemoryTree(genId(), TreeMap[Key, Value]()))
   }
@@ -205,8 +163,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
     * @param key 需要查找的键
     * @return 返回查找结果
     */
-  override def get(key: Key): Future[Option[Value]] = {
-
+  override def get(key: Key): Future[Option[Value]] = doJob {
     val State(segments, immTrees, curTree) = state
     retrieveFromMemory(key, curTree :: immTrees).flatMap(value =>
       (if (value.isEmpty) {
@@ -224,7 +181,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
     * @param key 需要删除的键
     * @return 键原有的值
     */
-  override def delete(key: Key): Future[Option[Value]] = {
+  override def delete(key: Key): Future[Option[Value]] = doJob {
     for {
       ov <- get(key)
       _ <- put(key, "d")
@@ -232,13 +189,11 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
   }
 
   private[this] def retrieveFromMemory(key: Key, memoryTrees: List[MemoryTree]): Future[Option[Value]] = {
-    Future {
-      memoryTrees.map(_.tree).find(_.contains(key)).map(_ (key))
-    }
+    doAsyncJob { memoryTrees.map(_.tree).find(_.contains(key)).map(_ (key)) }
   }
 
   private[this] def retrieveFromSegments(key: Key, segments: List[SSTable]): Future[Option[Value]] = {
-    Future {
+    doAsyncJob {
       // 先从内存中的 indexTree 中查找键
       segments.find(s => s.indexTree.contains(key)).map {
         case SSTable(_, _, path, indexTree) =>
@@ -246,6 +201,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
           else {
             var readChannel: SeekableByteChannel = null
 
+            // 在这个时候，可能发生文件刚被删除的意外
             try {
               readChannel = Files.newByteChannel(path, StandardOpenOption.READ)
             } catch {
@@ -271,10 +227,9 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
 
             assert(k == key)
             v
-
           }
       }
-    }(if (blockingExecutor.isShutdown) globalExecutor else blockingExecutor)
+    }
   }
 
 
@@ -285,23 +240,17 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
     * @param value 待设置值
     * @return 成功设置的值
     */
-  override def set(key: Key, value: Value): Future[Value] = {
+  override def set(key: Key, value: Value): Future[Value] = doJob {
     put(key, new StringBuilder("v".length + value.length).append("v").append(value).toString)
       .map(_ => value)
   }
 
   private def put(key: Key, value: Value): Future[Value] = {
     val f = Promise[Value]()
-
-    commandQueue.put(PutKey(key, value, {
-      v =>
-        f.success(v)
-    }))
-
+    commandQueue.put(PutKey(key, value, { v =>f.success(v) }))
     f.future
   }
 
-  lazy val commandQueue: BlockingQueue[Command] = new LinkedBlockingQueue[Command]()
 
   /**
     * 唯一可以修改state的工作线程
@@ -314,14 +263,12 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
     * `Compact`: 压缩SST
     *
     */
+  private[this] lazy val commandQueue: BlockingQueue[Command] = new LinkedBlockingQueue[Command]()
   private[this] val worker: Runnable = () => {
     val treeSizeThreshold = bufferSize
-    var someoneKillMe = false
 
-    while (!someoneKillMe) {
-      val op: Command = commandQueue.take()
-
-      op match {
+    while (!_isShutdown) {
+      commandQueue.take() match {
         case PutKey(key, value, callback) => putKey(key, value, callback)
 
         case UpdateSegments(newSegments, toRemove) => updateSegments(newSegments, toRemove)
@@ -329,30 +276,22 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
         case AddSegment(toAdd, toRemove) => addSegment(toAdd, toRemove)
 
         case PoisonPill =>
-          someoneKillMe = true
-          blockingExecutor.shutdown()
+          _log.info(s"SSTdb[$dbName] is shutting down...")
+          _isShutdown = true
+          futureExecutor.shutdown()
           scheduledPool.shutdown()
-          blockingExecutor.awaitTermination(Long.MaxValue, TimeUnit.MINUTES)
+          futureExecutor.awaitTermination(Long.MaxValue, TimeUnit.MINUTES)
           scheduledPool.awaitTermination(Long.MaxValue, TimeUnit.MINUTES)
 
-//          (state.curTree :: state.immTrees).foreach { memTree =>
-//            log.debug(s"${memTree.id}")
-//            val MemoryTree(id, tree) = memTree
-//            if (tree.size > 0) {
-//              val (bytes, _) = kvTreeToBytesAndIndexTree(tree)
-//              Files.write(storePath.resolve(s"$dbName-sst-${id}_to_$id"), bytes,
-//                StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
-//            }
-//          }
-
-          log.debug(s"remaining: ${state.curTree.id}")
           val MemoryTree(id, tree) = state.curTree
           if (tree.size > 0) {
             val (bytes, _) = kvTreeToBytesAndIndexTree(tree)
             Files.write(storePath.resolve(s"$dbName-sst-${id}_to_$id"), bytes,
               StandardOpenOption.CREATE, StandardOpenOption.WRITE)
           }
+          utils.Utils.removeDirIfExist(storePath.resolve("drop"))
 
+          _log.info(s"SSTdb[$dbName] has been shut down.")
       }
     }
 
@@ -379,7 +318,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
       *
       */
     def convertToSeg(memoryTree: MemoryTree): Future[Unit] = {
-      Future {
+      doAsyncJob {
         val MemoryTree(id, tree) = memoryTree
 
         val (bytes, indexTree) = kvTreeToBytesAndIndexTree(tree)
@@ -388,7 +327,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
           StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
 
         commandQueue.put(AddSegment(SSTable(id, id, path, indexTree), memoryTree))
-      }(if (blockingExecutor.isShutdown) globalExecutor else blockingExecutor)
+      }
     }
 
     /**
@@ -419,19 +358,17 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
     def updateSegments(newSegments: List[SSTable], toRemove: List[SSTable]): Unit = {
       val State(oldSegments, immTrees, curTree) = state
       val moreLen = oldSegments.length - toRemove.length + 1 - newSegments.length
-      //      log.debug(s"updateSegments: oldSegments: ${oldSegments.map(_.ids)}, newSegments: ${newSegments.map(_.ids)}, moreLen: $moreLen")
       val realNew = oldSegments.take(moreLen) ++ newSegments
 
       state = State(realNew, immTrees, curTree)
       if (!scheduledPool.isShutdown) scheduledPool.schedule(compactWorker, 10000 / realNew.length, TimeUnit.MILLISECONDS)
-      else log.warn(s"scheduledPool is shutdown")
+      else _log.warn(s"scheduledPool has been shut down.")
 
-      Future {
-        //          log.debug(s"updateSegments Future: in future")
+      doAsyncJob {
         toRemove.map(_.path).foreach(p => {
           deleteFile(p)
         })
-      }(if (blockingExecutor.isShutdown) globalExecutor else blockingExecutor)
+      }
     }
 
   }
@@ -445,11 +382,9 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
   private[this] val compactWorker: Runnable = () => {
     try {
       val State(segments, _, _) = state
-      //    log.debug(s"compactWorker: ${segments.map(_.ids)}")
       val (rest, fresh) = segments.reverse.span(_.compactRate >= compactRateThreshold)
       fresh.take(4) match {
         case l@List(_, _, _, _) =>
-          //          log.debug(s"${l.map(_.ids)}")
           var tree = TreeMap[Key, Value]()
           l.foreach {
             s =>
@@ -484,50 +419,41 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
 
           val (rest, right) = segments.span(!l.contains(_))
           val (rms, last) = right.span(l.contains(_))
-
-          //        log.debug(s"rest: ${rest.map(_.ids)}, rms: ${rms.map(_.ids)}, last: ${last.map(_.ids)} ")
-          //          log.debug(s"${path.toString}")
           commandQueue.put(UpdateSegments(rest ++ (SSTable(idFrom, idTo, path, indexTree) :: last), rms))
         case _ =>
           if (rest.length > 4) {
             compactRateThreshold = math.min(30, compactRateThreshold + 1)
-            log.debug(s"compact rate: $compactRateThreshold")
+//            _log.info(s"compact rate: $compactRateThreshold")
           }
-          if (!scheduledPool.isShutdown) scheduledPool.schedule(compactWorker, 2, TimeUnit.SECONDS)
-          else log.warn(s"scheduledPool is shutdown")
+          if (!scheduledPool.isShutdown)
+            scheduledPool.schedule(compactWorker, 10000 / math.max(1, segments.size), TimeUnit.MILLISECONDS)
+          else _log.warn(s"scheduledPool has been shut down.")
       }
     } catch {
       case e: Throwable =>
-        log.warn(s"${
-          e.toString
-        }")
+        _log.warn(s"${e.toString}")
         if (!scheduledPool.isShutdown) scheduledPool.schedule(compactWorker, 5, TimeUnit.SECONDS)
-        else log.warn(s"scheduledPool is shutdown")
+        else _log.warn(s"scheduledPool has been shutdown.")
     }
   }
 
   scheduledPool.schedule(compactWorker, 5, TimeUnit.SECONDS)
 
-  override def shutdown(): Unit = {
+  override def shutdown(): Unit = doJob {
     commandQueue.put(PoisonPill)
   }
 
   /**
-    * 两种Future执行环境
-    * 一种为默认，用于非阻塞，和CPU核数匹配
-    * 一种用于阻塞操作，如I/O
-    *
-    * 另外还有定时任务执行环境，供后台压缩使用
+    * Future 执行环境、以及后台压缩执行环境
     */
-  private implicit lazy val globalExecutor: ExecutionContextExecutor = ExecutionContext.global
-  private lazy val blockingExecutor: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(
+  private implicit lazy val futureExecutor: ExecutionContextExecutorService = ExecutionContext.fromExecutorService(
     Executors.newFixedThreadPool(20)
   )
   private lazy val scheduledPool: ScheduledExecutorService = Executors.newScheduledThreadPool(4)
 
 
-  override def allKeysAsc(): Future[List[Key]] = {
-    Future {
+  override def allKeysAsc(): Future[List[Key]] = doJob {
+    doAsyncJob {
       val State(segments, immTrees, curTree) = state
       var treeMap = TreeMap.empty[Key, Unit]
       segments.reverse.foreach { case SSTable(_, _, _, indexTree) =>
@@ -542,8 +468,8 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
     }
   }
 
-  override def allKeysDes(): Future[List[Key]] = {
-    Future {
+  override def allKeysDes(): Future[List[Key]] = doJob {
+    doAsyncJob {
       val State(segments, immTrees, curTree) = state
       var treeMap = TreeMap.empty[Key, Unit]
       segments.reverse.foreach { case SSTable(_, _, _, indexTree) =>
@@ -556,5 +482,54 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
 
       treeMap.mapDes{ case (k, _) => k }
     }
+  }
+
+  override def isShutdown: Boolean = _isShutdown
+
+  private def doJob[T](job: => T): T =
+    if (_isShutdown) throw new Exception(s"SSTdb[$dbName] has been shutdown")
+    else job
+
+  private def doAsyncJob[T](asyncJob: => T)(implicit executor: ExecutionContext): Future[T] =
+    if (futureExecutor.isShutdown) Future.successful(asyncJob)
+    else Future(asyncJob)(executor)
+
+  private def kvTreeToBytesAndIndexTree(tree: TreeMap[Key, Value], dropDel: Boolean = false): (Array[Byte], TreeMap[Key, (Boolean, Offset)]) = {
+    val intLength = 4
+    val (listOfArray, _, indexTree) = tree.foldLeft((Vector.empty[Array[Byte]], 0, TreeMap.empty[Key, (Boolean, Offset)])) {
+      case ((acc, offset, iTree), (key, value)) =>
+        val bfk = ByteBuffer.allocate(intLength)
+        val bfv = ByteBuffer.allocate(intLength)
+
+        val keyBytes = key.getBytes(StandardCharsets.UTF_8)
+        val valueBytes = value.getBytes(StandardCharsets.UTF_8)
+        if (!dropDel || value.charAt(0) == 'v') {
+          val accOffset = intLength + keyBytes.length + intLength + valueBytes.length + offset
+          (acc :+ bfk.putInt(keyBytes.length).array() :+ keyBytes :+
+            bfv.putInt(valueBytes.length).array() :+ valueBytes,
+            accOffset,
+            iTree.insert(key, (value.charAt(0) == 'v', offset)))
+        } else {
+          (acc, offset, iTree)
+        }
+    }
+    val bytes = listOfArray.toArray.flatten
+    (bytes, indexTree)
+  }
+
+  private def deleteFile(path: Path): Unit = {
+    val parent = path.getParent
+    val newName = parent.resolve("drop").resolve(path.getFileName)
+    if (Files.notExists(newName.getParent)) Files.createDirectory(newName.getParent)
+    Files.move(path, newName)
+  }
+
+  private def readInt(buf: ByteBuffer, channel: SeekableByteChannel): Option[Int] = {
+    if (channel.read(buf) > 0) {
+      buf.flip()
+      val i = buf.getInt
+      buf.clear()
+      Option(i)
+    } else None
   }
 }

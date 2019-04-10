@@ -9,6 +9,7 @@ import scala.concurrent.{Await, Future}
 import scala.util.Random
 
 class SSTEngineTest extends BasicAsyncFlatSpec {
+
   import BasicAsyncFlatSpec._
 
   "build" should "create a folder at first" in withTestEngine(bufferSize = 1500) { _ =>
@@ -20,10 +21,9 @@ class SSTEngineTest extends BasicAsyncFlatSpec {
   "a key-value pair" should "be able to retrieve after being set" in
     withTestEngine(bufferSize = 1500) { engine =>
       val (key, value) = "testKey" -> "testVal"
-      engine.set(key, value).foreach { _ =>
-        engine.get(key).foreach(v =>
-          v should equal(Some(value)))
-      }
+      Await.result(engine.set(key, value), Duration.Inf)
+      val v = Await.result(engine.get(key), Duration.Inf)
+      v should equal(Some(value))
     }
 
   "a key" should "not contained in map after being deleted" in
@@ -33,7 +33,7 @@ class SSTEngineTest extends BasicAsyncFlatSpec {
 
       for {
         _ <- engine.set(key, value)
-        fvs = kvPairs.map{ case (k, v) => engine.set(k, v) }
+        fvs = kvPairs.map { case (k, v) => engine.set(k, v) }
         _ <- Future.sequence(fvs)
         _ <- engine.delete(key)
         result <- engine.get(key)
@@ -42,7 +42,7 @@ class SSTEngineTest extends BasicAsyncFlatSpec {
 
   "retrieve a non-exist key" should "return none" in withTestEngine(bufferSize = 1500) { engine =>
     val kvPairs = (1 to 100000).map(i => (i.toString, i.toString))
-    val fvs = kvPairs.map { case (k, v) => engine.set(k, v)}
+    val fvs = kvPairs.map { case (k, v) => engine.set(k, v) }
 
     for {
       _ <- Future.sequence(fvs)
@@ -71,12 +71,12 @@ class SSTEngineTest extends BasicAsyncFlatSpec {
   "setting, deleting and getting random number" should "behave normally" in
     withTestEngine(bufferSize = 1500) { engine =>
       var delNums = Set.empty[Int]
-      (1 to 30000).foreach(_ => delNums = delNums + Random.nextInt(100000))
+      (1 to 300000).foreach(_ => delNums = delNums + Random.nextInt(1000000))
 
-      (1 to 100000).foreach(i => Await.result(engine.set(i.toString, i.toString), Duration.Inf))
+      (1 to 1000000).foreach(i => Await.result(engine.set(i.toString, i.toString), Duration.Inf))
       delNums.foreach(i => Await.result(engine.delete(i.toString), Duration.Inf))
 
-      (1 to 100000).foreach(i => {
+      (1 to 1000000).foreach(i => {
         val num = Await.result(engine.get(i.toString), Duration.Inf)
         if (delNums.contains(i)) assert(num.isEmpty)
         else assert(num.get == i.toString)
@@ -94,7 +94,7 @@ class SSTEngineTest extends BasicAsyncFlatSpec {
       delNums.foreach(i => Await.result(engine.delete(i.toString), Duration.Inf))
 
       ((1 to 1000000).toSet -- delNums).toList.sorted.zip(Await.result(engine.allKeysAsc(), Duration.Inf))
-          .forall(a => a._1.toString == a._2)
+        .forall(a => a._1.toString == a._2)
 
       succeed
     }
