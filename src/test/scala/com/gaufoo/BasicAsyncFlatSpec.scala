@@ -23,10 +23,9 @@ class BasicAsyncFlatSpec extends AsyncFlatSpec with Matchers with Logging {
     testCode(engine)
 
     engine.shutdown()
-//    removeDbFolderIfExist(dbLocation)
+    removeDbFolderIfExist(dbLocation)
     succeed
   }
-
 }
 
 object BasicAsyncFlatSpec {

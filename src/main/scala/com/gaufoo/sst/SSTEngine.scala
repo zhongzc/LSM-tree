@@ -332,14 +332,27 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
           someoneKillMe = true
           blockingExecutor.shutdown()
           scheduledPool.shutdown()
+          blockingExecutor.awaitTermination(Long.MaxValue, TimeUnit.MINUTES)
+          scheduledPool.awaitTermination(Long.MaxValue, TimeUnit.MINUTES)
 
-          (state.curTree :: state.immTrees).foreach { memTree =>
-            log.debug(s"${memTree.id}")
-            val MemoryTree(id, tree) = memTree
+//          (state.curTree :: state.immTrees).foreach { memTree =>
+//            log.debug(s"${memTree.id}")
+//            val MemoryTree(id, tree) = memTree
+//            if (tree.size > 0) {
+//              val (bytes, _) = kvTreeToBytesAndIndexTree(tree)
+//              Files.write(storePath.resolve(s"$dbName-sst-${id}_to_$id"), bytes,
+//                StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+//            }
+//          }
+
+          log.debug(s"remaining: ${state.curTree.id}")
+          val MemoryTree(id, tree) = state.curTree
+          if (tree.size > 0) {
             val (bytes, _) = kvTreeToBytesAndIndexTree(tree)
             Files.write(storePath.resolve(s"$dbName-sst-${id}_to_$id"), bytes,
-              StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+              StandardOpenOption.CREATE, StandardOpenOption.WRITE)
           }
+
       }
     }
 
@@ -371,9 +384,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
 
         val (bytes, indexTree) = kvTreeToBytesAndIndexTree(tree)
 
-        val path = Files.write(storePath.resolve(s"$dbName-sst-${
-          id
-        }_to_$id"), bytes,
+        val path = Files.write(storePath.resolve(s"$dbName-sst-${id}_to_$id"), bytes,
           StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
 
         commandQueue.put(AddSegment(SSTable(id, id, path, indexTree), memoryTree))
@@ -479,7 +490,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
           commandQueue.put(UpdateSegments(rest ++ (SSTable(idFrom, idTo, path, indexTree) :: last), rms))
         case _ =>
           if (rest.length > 4) {
-            compactRateThreshold += 1
+            compactRateThreshold = math.min(30, compactRateThreshold + 1)
             log.debug(s"compact rate: $compactRateThreshold")
           }
           if (!scheduledPool.isShutdown) scheduledPool.schedule(compactWorker, 2, TimeUnit.SECONDS)
@@ -488,7 +499,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
     } catch {
       case e: Throwable =>
         log.warn(s"${
-          e.getMessage
+          e.toString
         }")
         if (!scheduledPool.isShutdown) scheduledPool.schedule(compactWorker, 5, TimeUnit.SECONDS)
         else log.warn(s"scheduledPool is shutdown")

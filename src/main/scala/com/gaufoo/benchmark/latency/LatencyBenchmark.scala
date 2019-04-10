@@ -18,7 +18,7 @@ object LatencyBenchmark extends Logging  {
   def runBenchmark(
     kvEngine: KVEngine,
     ops: List[Op],
-    cps: CommandsPerSecond = CommandsPerSecond(20000)): Unit = {
+    cps: CommandsPerSecond = CommandsPerSecond(10000)): Unit = {
     log.debug("Begin latency benchmarking")
 
     @tailrec

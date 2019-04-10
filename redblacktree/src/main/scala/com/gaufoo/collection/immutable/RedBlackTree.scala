@@ -81,6 +81,8 @@ private[collection] object RedBlackTree {
               remain.push(right)
               remain.push(RBTree(Black, Ety, kv, Ety))
               remain.push(left)
+
+            case Ety => List()
             case _ => sys.error("non gettable")
           }
         } else {
@@ -97,6 +99,8 @@ private[collection] object RedBlackTree {
               remain.push(left)
               remain.push(RBTree(Black, Ety, kv, Ety))
               remain.push(right)
+
+            case Ety => List()
             case _ => sys.error("non gettable")
           }
         }
