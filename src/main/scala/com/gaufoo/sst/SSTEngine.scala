@@ -185,7 +185,7 @@ class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
 
     val segments = files.map(path => fileToSegment(path)).sortBy(-_.idFrom)
 
-    idFrom = segments.head.idTo + 1
+    idFrom = segments.headOption.map(_.idTo + 1).getOrElse(0)
     State(segments, List(), MemoryTree(genId(), TreeMap[Key, Value]()))
   }
 
