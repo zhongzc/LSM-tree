@@ -18,7 +18,7 @@ class BasicAsyncFlatSpec extends AsyncFlatSpec with Matchers with Logging {
 
   def withTestEngine(bufferSize: Int)(testCode: KVEngine => Any): Assertion = {
     removeDbFolderIfExist(dbLocation)
-    val engine = SSTEngine.build(dbName, bufferSize)
+    val engine = SSTEngine.build(dbName, bufferSize = bufferSize)
 
     testCode(engine)
 

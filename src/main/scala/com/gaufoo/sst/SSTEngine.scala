@@ -16,8 +16,11 @@ import scala.concurrent._
 import scala.concurrent.Future
 
 object SSTEngine extends Types {
-  def build(dbName: String, bufferSize: Int = 1500): SSTEngine = {
-    new SSTEngine(dbName, bufferSize)
+  def build(dbName: String, path: Path = null, bufferSize: Int = 1500): SSTEngine = {
+    if (path == null) {
+      new SSTEngine(dbName, Paths.get("resources").resolve(dbName), bufferSize)
+    }
+    new SSTEngine(dbName, path, bufferSize)
   }
 
   final case class MemoryTree(id: Int, tree: TreeMap[Key, Value]) extends AnyRef {
@@ -50,11 +53,11 @@ object SSTEngine extends Types {
   final case object PoisonPill extends Command
 }
 
-class SSTEngine(dbName: String, bufferSize: Int) extends KVEngine {
+class SSTEngine(dbName: String, path: Path, bufferSize: Int) extends KVEngine {
   import SSTEngine._
   private[this] val _log = LoggerFactory.getLogger(this.getClass)
   private[this] var _isShutdown = false
-  private[this] val storePath: Path = Paths.get(s"resources/$dbName")
+  private[this] val storePath: Path = path
 
   // id generator
   private[this] var idFrom = 0

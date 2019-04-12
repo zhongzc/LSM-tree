@@ -74,7 +74,7 @@ object LatencyBenchmark extends Logging  {
     Await.result(jvmWarmUp(warmUp), Duration.Inf)
     warmUp.shutdown()
 
-    val latency = SSTEngine.build("latency", 1500)
+    val latency = SSTEngine.build("latency", bufferSize = 1500)
     LatencyBenchmark.runBenchmark(latency, getOps(500000))
     latency.shutdown()
   }
