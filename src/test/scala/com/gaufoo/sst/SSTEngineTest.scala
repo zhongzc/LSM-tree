@@ -112,4 +112,24 @@ class SSTEngineTest extends BasicAsyncFlatSpec {
 
       succeed
     }
+
+  "SSTEngine" should "rebuild indexTree after restart" in {
+    removeDbFolderIfExist(dbLocation)
+    val engine1 = SSTEngine.build(dbName)
+
+    val maxLength = 50
+    val value = "test"
+    val dataSet = (1 to 100).map(_ => randomString(maxLength)).toSet
+
+    Future.sequence(dataSet.map(key => engine1.set(key, value)))
+      .flatMap(_ => engine1.shutdown())
+      .map(_ => SSTEngine.build(dbName))
+      .flatMap(engine2 => {
+        Future.sequence(
+          dataSet.map(key => engine2.get(key).map(ov => assert(ov.contains(value))))
+        ).flatMap(_ => engine2.shutdown())
+      })
+      .map(_ => removeDbFolderIfExist(dbLocation))
+      .map(_ => succeed)
+  }
 }

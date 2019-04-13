@@ -17,10 +17,9 @@ import scala.concurrent.Future
 
 object SSTEngine extends Types {
   def build(dbName: String, path: Path = null, bufferSize: Int = 1500): SSTEngine = {
-    if (path == null) {
+    if (path == null)
       new SSTEngine(dbName, Paths.get("resources").resolve(dbName), bufferSize)
-    }
-    new SSTEngine(dbName, path, bufferSize)
+    else new SSTEngine(dbName, path, bufferSize)
   }
 
   final case class MemoryTree(id: Int, tree: TreeMap[Key, Value]) extends AnyRef {
@@ -50,7 +49,7 @@ object SSTEngine extends Types {
 
   final case class AddSegment(toAdd: SSTable, toRemove: MemoryTree) extends Command
 
-  final case object PoisonPill extends Command
+  final case class PoisonPill(callback: () => Unit) extends Command
 }
 
 class SSTEngine(dbName: String, path: Path, bufferSize: Int) extends KVEngine {
@@ -134,7 +133,7 @@ class SSTEngine(dbName: String, path: Path, bufferSize: Int) extends KVEngine {
         val k = new String(keyBuf.array(), 0, keyLen)
         val v = new String(valueBuf.array(), 0, valueLen)
 
-        offset = c.position.toInt
+        offset = c.position.toInt - keyLen - valueLen - 8
         indexTree = indexTree.insert(k, (v.charAt(0) == 'v', offset))
       }
       c.close()
@@ -278,7 +277,7 @@ class SSTEngine(dbName: String, path: Path, bufferSize: Int) extends KVEngine {
 
         case AddSegment(toAdd, toRemove) => addSegment(toAdd, toRemove)
 
-        case PoisonPill =>
+        case PoisonPill(callback) =>
           _log.info(s"SSTdb[$dbName] is shutting down...")
           _isShutdown = true
           futureExecutor.shutdown()
@@ -295,6 +294,7 @@ class SSTEngine(dbName: String, path: Path, bufferSize: Int) extends KVEngine {
           utils.Utils.removeDirIfExist(storePath.resolve("drop"))
 
           _log.info(s"SSTdb[$dbName] has been shut down.")
+          callback()
       }
     }
 
@@ -442,8 +442,10 @@ class SSTEngine(dbName: String, path: Path, bufferSize: Int) extends KVEngine {
 
   scheduledPool.schedule(compactWorker, 5, TimeUnit.SECONDS)
 
-  override def shutdown(): Unit = doJob {
-    commandQueue.put(PoisonPill)
+  override def shutdown(): Future[Boolean] = doJob {
+    val p = Promise[Boolean]()
+    commandQueue.put(PoisonPill(() => { p.success(true) }))
+    p.future
   }
 
   /**

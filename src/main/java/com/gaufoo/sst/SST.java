@@ -34,8 +34,8 @@ public class SST {
         return FutureConverters.toJava(kvEngine.allKeysDes()).thenApply(ScalaStreamSupport::stream);
     }
 
-    public void shutdown() {
-        kvEngine.shutdown();
+    public CompletionStage<?> shutdown() {
+        return FutureConverters.toJava(kvEngine.shutdown());
     }
 
     public boolean isShutdown() {
