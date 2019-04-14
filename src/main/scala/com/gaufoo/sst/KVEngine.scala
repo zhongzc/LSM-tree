@@ -19,7 +19,7 @@ trait KVEngine extends Types {
 
   def allKeysDes(): Future[List[Key]]
 
-  def shutdown(): Unit
+  def shutdown(): Future[Boolean]
 
   def isShutdown: Boolean
 }
