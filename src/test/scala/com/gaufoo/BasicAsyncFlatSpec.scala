@@ -10,6 +10,8 @@ import org.scalatest.{Assertion, AsyncFlatSpec, Matchers}
 import org.slf4s.Logging
 
 import scala.collection.mutable
+import scala.concurrent.Await
+import scala.concurrent.duration.Duration
 import scala.util.Random
 
 class BasicAsyncFlatSpec extends AsyncFlatSpec with Matchers with Logging {
@@ -22,7 +24,7 @@ class BasicAsyncFlatSpec extends AsyncFlatSpec with Matchers with Logging {
 
     testCode(engine)
 
-    engine.shutdown()
+    Await.result(engine.shutdown(), Duration.Inf)
     removeDbFolderIfExist(dbLocation)
     succeed
   }

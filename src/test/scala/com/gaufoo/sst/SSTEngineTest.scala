@@ -90,11 +90,11 @@ class SSTEngineTest extends BasicAsyncFlatSpec {
       var delNums = Set.empty[Int]
       (1 to 300000).foreach(_ => delNums = delNums + Random.nextInt(1000000))
 
-      (1 to 1000000).foreach(i => Await.result(engine.set(i.toString, i.toString), Duration.Inf))
-      delNums.foreach(i => Await.result(engine.delete(i.toString), Duration.Inf))
+      (1 to 1000000).foreach(i => Await.result(engine.set("%08d".format(i), "%08d".format(i)), Duration.Inf))
+      delNums.foreach(i => Await.result(engine.delete("%08d".format(i)), Duration.Inf))
 
       ((1 to 1000000).toSet -- delNums).toList.sorted.zip(Await.result(engine.allKeysAsc(), Duration.Inf))
-        .forall(a => a._1.toString == a._2)
+        .foreach(a => assert("%08d".format(a._1) == a._2))
 
       succeed
     }
@@ -104,11 +104,11 @@ class SSTEngineTest extends BasicAsyncFlatSpec {
       var delNums = Set.empty[Int]
       (1 to 300000).foreach(_ => delNums = delNums + Random.nextInt(1000000))
 
-      (1 to 1000000).foreach(i => Await.result(engine.set(i.toString, i.toString), Duration.Inf))
-      delNums.foreach(i => Await.result(engine.delete(i.toString), Duration.Inf))
+      (1 to 1000000).foreach(i => Await.result(engine.set("%08d".format(i), "%08d".format(i)), Duration.Inf))
+      delNums.foreach(i => Await.result(engine.delete("%08d".format(i)), Duration.Inf))
 
       ((1 to 1000000).toSet -- delNums).toList.sorted.reverse.zip(Await.result(engine.allKeysDes(), Duration.Inf))
-        .forall(a => a._1.toString == a._2)
+        .foreach(a => assert("%08d".format(a._1) == a._2))
 
       succeed
     }
