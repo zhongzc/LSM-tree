@@ -489,6 +489,40 @@ class SSTEngine(dbName: String, path: Path, bufferSize: Int) extends KVEngine {
     }
   }
 
+  override def rangeKeysAsc(left: Key, right: Key): Future[List[Key]] = {
+    assert(left <= right)
+    doAsyncJob {
+      val State(segments, immTrees, curTree) = state
+      var treeMap = TreeMap.empty[Key, Unit]
+      segments.reverse.foreach { case SSTable(_, _, _, indexTree) =>
+        indexTree.mapInRangeAsc(left, right, { case (k, (b, _)) => treeMap = if (b) treeMap.insert(k, Unit) else treeMap.remove(k) })
+      }
+      immTrees.reverse.foreach { case MemoryTree(_, tree) =>
+        tree.mapInRangeAsc(left, right, { case (k, v) => treeMap = if (v.charAt(0) == 'v') treeMap.insert(k, Unit) else treeMap.remove(k) })
+      }
+      curTree.tree.mapInRangeAsc(left, right, { case (k, v) => treeMap = if (v.charAt(0) == 'v') treeMap.insert(k, Unit) else treeMap.remove(k) })
+
+      treeMap.mapAsc{ case (k, _) => k }
+    }
+  }
+
+  override def rangeKeysDes(right: Key, left: Key): Future[List[Key]] = {
+    assert(left <= right)
+    doAsyncJob {
+      val State(segments, immTrees, curTree) = state
+      var treeMap = TreeMap.empty[Key, Unit]
+      segments.reverse.foreach { case SSTable(_, _, _, indexTree) =>
+        indexTree.mapInRangeAsc(left, right, { case (k, (b, _)) => treeMap = if (b) treeMap.insert(k, Unit) else treeMap.remove(k) })
+      }
+      immTrees.reverse.foreach { case MemoryTree(_, tree) =>
+        tree.mapInRangeAsc(left, right, { case (k, v) => treeMap = if (v.charAt(0) == 'v') treeMap.insert(k, Unit) else treeMap.remove(k) })
+      }
+      curTree.tree.mapInRangeAsc(left, right, { case (k, v) => treeMap = if (v.charAt(0) == 'v') treeMap.insert(k, Unit) else treeMap.remove(k) })
+
+      treeMap.mapDes{ case (k, _) => k }
+    }
+  }
+
   override def isShutdown: Boolean = _isShutdown
 
   private def doJob[T](job: => T): T =
@@ -537,4 +571,5 @@ class SSTEngine(dbName: String, path: Path, bufferSize: Int) extends KVEngine {
       Option(i)
     } else None
   }
+
 }

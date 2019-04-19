@@ -20,11 +20,23 @@ final class TreeMap[K, V] private(tree: RB.Tree[K, V])(implicit val ordering: Or
 
   def map[B](fn: (K, V) => B): List[B] = mapAsc(fn)
 
+  def mapInRange[B](left: K, right: K, fn: (K, V) => B): List[B] = mapInRangeAsc(left, right, fn)
+
   def foreach(fn: (K, V) => Unit): Unit = map { case (k, v) => fn(k, v) }
 
   def mapAsc[B](fn: (K, V) => B): List[B] = RB.Tree.map(fn, tree)
 
   def mapDes[B](fn: (K, V) => B): List[B] = RB.Tree.map(fn, tree, true)
+
+  def mapInRangeAsc[B](left: K, right: K, fn: (K, V) => B): List[B] = {
+    assert(ordering.compare(left, right) <= 0)
+    RB.Tree.mapInRange(left, right, fn, tree)(ordering)
+  }
+
+  def mapInRangeDes[B](right: K, left: K, fn: (K, V) => B): List[B] = {
+    assert(ordering.compare(left, right) <= 0)
+    RB.Tree.mapInRange(left, right, fn, tree, true)(ordering)
+  }
 
   def getAllEntries: List[(K, V)] = map { case (k, v) => (k, v) }
 
@@ -46,17 +58,18 @@ object TreeMap {
   }
 
   def main(args: Array[String]): Unit = {
-    var s = collection.immutable.TreeMap.empty[String, String]
+    var s = collection.immutable.TreeMap.empty[Int, String]
     val s1 = System.currentTimeMillis()
-    (1 to 100000).foreach(i => s = s.insert(i.toString, (i * i).toString))
-    (1 to 100000).foreach(i => s = s - i.toString)
+    (1 to 100000).foreach(i => s = s.insert(i, (i * i).toString))
+    (1 to 100000).foreach(i => s = s - i)
     val e1 = System.currentTimeMillis()
     println(e1 - s1)
 
-    var m = TreeMap.empty[String, String]
+    var m = TreeMap.empty[Int, String]
     val s2 = System.currentTimeMillis()
-    (1 to 100000).foreach(i => m = m.insert(i.toString, (i * i).toString))
-    (1 to 100000).foreach(i => m = m.remove(i.toString))
+    (1 to 100000).foreach(i => m = m.insert(i, (i * i).toString))
+    (1 to 100000).foreach(i => m = m.remove(i))
+//    println(m.mapInRangeDes(1000, 0, {case (l, r) => (l, r)}).mkString(", "))
     val e2 = System.currentTimeMillis()
     println(e2 - s2)
   }

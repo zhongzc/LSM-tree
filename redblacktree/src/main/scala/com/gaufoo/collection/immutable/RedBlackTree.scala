@@ -82,7 +82,7 @@ private[collection] object RedBlackTree {
               remain.push(RBTree(Black, Ety, kv, Ety))
               remain.push(left)
 
-            case Ety => List()
+            case Ety =>
             case _ => sys.error("non gettable")
           }
         } else {
@@ -100,12 +100,27 @@ private[collection] object RedBlackTree {
               remain.push(RBTree(Black, Ety, kv, Ety))
               remain.push(right)
 
-            case Ety => List()
+            case Ety =>
             case _ => sys.error("non gettable")
           }
         }
       }
       listBuf.toList
+    }
+
+    def mapInRange[K, V, B](left: K, right: K, func: (K, V) => B, tree: Tree[K, V], des: Boolean = false)(implicit ord: Ordering[K]): List[B] = {
+      map(func, subTreeInRange(left, right, tree)(ord), des)
+    }
+
+    private def subTreeInRange[K, V](left: K, right: K, tree: Tree[K, V])(implicit ord: Ordering[K]): Tree[K, V] = tree match {
+      case RBTree(_, l, kv, r) =>
+        if (ord.compare(kv.key, left) < 0) subTreeInRange(left, right, r)(ord)
+        else if (ord.compare(kv.key, left) == 0) RBTree(Black, Ety, kv, subTreeInRange(left, right, r))
+        else if (ord.compare(kv.key, right) > 0) subTreeInRange(left, right, l)(ord)
+        else if (ord.compare(kv.key, right) == 0) RBTree(Black, subTreeInRange(left, right, l)(ord), kv, Ety)
+        else RBTree(Black, subTreeInRange(left, right, l)(ord), kv, subTreeInRange(left, right, r)(ord))
+
+      case Ety => Ety
     }
 
     private def remove[K, V](tree: Tree[K, V]): Tree[K, V] = tree match {
@@ -178,22 +193,31 @@ private[collection] object RedBlackTree {
 
   sealed trait Color {
     def blacker: Color
-    def redder : Color
+
+    def redder: Color
   }
+
   case object Red extends Color {
     override def blacker: Color = Black
+
     override def redder: Color = NegBlack
   }
+
   case object Black extends Color {
     override def blacker: Color = DblBlack
+
     override def redder: Color = Red
   }
+
   case object DblBlack extends Color { // double black
     override def blacker: Color = sys.error("too black")
+
     override def redder: Color = Black
   }
+
   case object NegBlack extends Color { // negative black
     override def blacker: Color = Red
+
     override def redder: Color = sys.error("not black enough")
   }
 
@@ -201,22 +225,32 @@ private[collection] object RedBlackTree {
 
   sealed abstract class Tree[+K, +V] {
     def size: Int
+
     def height: Int
 
     def redden: Tree[K, V]
+
     def blacken: Tree[K, V]
+
     def isDoubleBlack: Boolean
+
     def blacker: Tree[K, V]
+
     def redder: Tree[K, V]
   }
+
   case object Ety extends Tree[Nothing, Nothing] {
     override val size: Int = 0
     override val height: Int = 0
 
     override def redden: Tree[Nothing, Nothing] = sys.error("cannot redden empty tree")
+
     override def blacken: Tree[Nothing, Nothing] = Ety
+
     override def isDoubleBlack: Boolean = false
+
     override def blacker: Tree[Nothing, Nothing] = DblEty
+
     override def redder: Tree[Nothing, Nothing] = sys.error("not black enough")
   } // black leaf
   case object DblEty extends Tree[Nothing, Nothing] {
@@ -224,23 +258,31 @@ private[collection] object RedBlackTree {
     override val height: Int = 0
 
     override def redden: Tree[Nothing, Nothing] = sys.error("cannot redden empty tree")
+
     override def blacken: Tree[Nothing, Nothing] = DblEty
+
     override def isDoubleBlack: Boolean = true
+
     override def blacker: Tree[Nothing, Nothing] = sys.error("too black")
+
     override def redder: Tree[Nothing, Nothing] = Ety
   } // double black leaF
   final case class RBTree[+K, +V](
-    color: Color,
-    left: Tree[K, V],
-    payload: KV[K, V],
-    right: Tree[K, V]) extends Tree[K, V] {
+                                   color: Color,
+                                   left: Tree[K, V],
+                                   payload: KV[K, V],
+                                   right: Tree[K, V]) extends Tree[K, V] {
     override val size: Int = left.size + right.size + 1
     override val height: Int = math.max(left.height, right.height) + 1
 
     override def redden: Tree[K, V] = RBTree(Red, left, payload, right)
+
     override def blacken: Tree[K, V] = RBTree(Black, left, payload, right)
+
     override def isDoubleBlack: Boolean = color == DblBlack
+
     override def blacker: Tree[K, V] = RBTree(color.blacker, left, payload, right)
+
     override def redder: Tree[K, V] = RBTree(color.redder, left, payload, right)
   }
 

@@ -34,6 +34,14 @@ public class SST {
         return FutureConverters.toJava(kvEngine.allKeysDes()).thenApply(ScalaStreamSupport::stream);
     }
 
+    public CompletionStage<Stream<String>> rangeKeysAsc(String left, String right) {
+        return FutureConverters.toJava(kvEngine.rangeKeysAsc(left, right)).thenApply(ScalaStreamSupport::stream);
+    }
+
+    public CompletionStage<Stream<String>> rangeKeysDes(String right, String left) {
+        return FutureConverters.toJava(kvEngine.rangeKeysDes(right, left)).thenApply(ScalaStreamSupport::stream);
+    }
+
     public CompletionStage<?> shutdown() {
         return FutureConverters.toJava(kvEngine.shutdown());
     }

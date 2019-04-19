@@ -113,13 +113,31 @@ class SSTEngineTest extends BasicAsyncFlatSpec {
       succeed
     }
 
+  "get range keys in ascending order" should "behave normally" in
+    withTestEngine(bufferSize = 1500) { engine =>
+      (1 to 1000000).foreach(i => Await.result(engine.set("%08d".format(i), "%08d".format(i)), Duration.Inf))
+      Await.result(engine.rangeKeysAsc("00000100", "00100000"), Duration.Inf).zip(100 to 100000)
+        .foreach(a => assert(a._1 == "%08d".format(a._2)))
+
+      succeed
+    }
+
+  "get range keys in descending order" should "behave normally" in
+    withTestEngine(bufferSize = 1500) { engine =>
+      (1 to 1000000).foreach(i => Await.result(engine.set("%08d".format(i), "%08d".format(i)), Duration.Inf))
+      Await.result(engine.rangeKeysDes("00100000", "00000100"), Duration.Inf).zip(100000 to 100 by -1)
+        .foreach(a => assert(a._1 == "%08d".format(a._2)))
+
+      succeed
+    }
+
   "SSTEngine" should "rebuild indexTree after restart" in {
     removeDbFolderIfExist(dbLocation)
     val engine1 = SSTEngine.build(dbName)
 
     val maxLength = 50
     val value = "test"
-    val dataSet = (1 to 100).map(_ => randomString(maxLength)).toSet
+    val dataSet = (1 to 10000).map(_ => randomString(maxLength)).toSet
 
     Future.sequence(dataSet.map(key => engine1.set(key, value)))
       .flatMap(_ => engine1.shutdown())

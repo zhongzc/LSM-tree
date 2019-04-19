@@ -19,6 +19,10 @@ trait KVEngine extends Types {
 
   def allKeysDes(): Future[List[Key]]
 
+  def rangeKeysAsc(left: Key, right: Key): Future[List[Key]]
+
+  def rangeKeysDes(right: Key, left: Key): Future[List[Key]]
+
   def shutdown(): Future[Boolean]
 
   def isShutdown: Boolean
