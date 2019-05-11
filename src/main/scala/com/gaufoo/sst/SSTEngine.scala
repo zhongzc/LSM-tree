@@ -84,7 +84,7 @@ class SSTEngine(dbName: String, path: Path, bufferSize: Int) extends KVEngine {
   }
 
   private[this] def restoreSST(path: Path): State = {
-    var files = Files.list(path).iterator().asScala.toList.filter(_.toString.contains("-"))
+    var files = Files.list(path).iterator().asScala.toList.filter(f => !Files.isDirectory(f) && f.toString.contains("-"))
 
     def checkFiles(): Unit = {
       var bitset = BitSet()
