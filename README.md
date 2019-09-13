@@ -1,4 +1,4 @@
-# sst
+# LSM-tree
 
 Run `FakeDataGenerator.main` to generate fake data.
 
